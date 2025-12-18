@@ -56,7 +56,7 @@ def extract_text(file_path: str, file_type: str) -> str:
         return extract_text_from_pdf(file_path)
     elif file_type in ["docx", "doc"]:
         return extract_text_from_docx(file_path)
-    elif file_type == "txt":
+    elif file_type in ["txt", "md"]:
         return extract_text_from_txt(file_path)
     else:
         raise ValueError(f"Unsupported file type: {file_type}")

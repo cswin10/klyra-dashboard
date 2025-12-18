@@ -12,7 +12,7 @@ from rag import process_document, delete_document_chunks
 
 router = APIRouter(prefix="/api/documents", tags=["documents"])
 
-ALLOWED_EXTENSIONS = {"pdf", "docx", "doc", "txt"}
+ALLOWED_EXTENSIONS = {"pdf", "docx", "doc", "txt", "md"}
 
 
 def get_file_extension(filename: str) -> str:
