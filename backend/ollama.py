@@ -67,18 +67,37 @@ async def generate_text_sync(
 async def generate_embedding(text: str, model: str = None) -> List[float]:
     """Generate embeddings for text using Ollama API."""
     model = model or settings.OLLAMA_EMBED_MODEL
-    url = f"{settings.OLLAMA_BASE_URL}/api/embeddings"
 
+    # Try newer /api/embed endpoint first (Ollama 0.1.14+)
+    url = f"{settings.OLLAMA_BASE_URL}/api/embed"
     payload = {
         "model": model,
-        "prompt": text
+        "input": text
     }
 
     async with httpx.AsyncClient(timeout=60.0) as client:
-        response = await client.post(url, json=payload)
-        response.raise_for_status()
-        data = response.json()
-        return data.get("embedding", [])
+        try:
+            response = await client.post(url, json=payload)
+            response.raise_for_status()
+            data = response.json()
+            # New API returns "embeddings" array
+            embeddings = data.get("embeddings", [])
+            if embeddings and len(embeddings) > 0:
+                return embeddings[0]
+            return []
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 404:
+                # Fallback to older /api/embeddings endpoint
+                url = f"{settings.OLLAMA_BASE_URL}/api/embeddings"
+                payload = {
+                    "model": model,
+                    "prompt": text
+                }
+                response = await client.post(url, json=payload)
+                response.raise_for_status()
+                data = response.json()
+                return data.get("embedding", [])
+            raise
 
 
 async def list_models() -> List[dict]:
