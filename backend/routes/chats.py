@@ -110,23 +110,27 @@ async def send_message(
 
     start_time = time.time()
 
+    # Capture values before entering the generator (to avoid session issues)
+    user_id = current_user.id
+    query_content = request.content
+
     # Save user message
     user_message = Message(
         chat_id=chat_id,
         role=MessageRole.user,
-        content=request.content
+        content=query_content
     )
     db.add(user_message)
 
     # Update chat title if it's the first message
     if not chat.title:
-        chat.title = request.content[:50] + ("..." if len(request.content) > 50 else "")
+        chat.title = query_content[:50] + ("..." if len(query_content) > 50 else "")
 
     chat.updated_at = datetime.utcnow()
     db.commit()
 
     # Build RAG prompt
-    prompt, sources = await query_with_rag(request.content)
+    prompt, sources = await query_with_rag(query_content)
 
     async def generate_stream():
         full_response = ""
@@ -137,24 +141,27 @@ async def send_message(
                 # Send token as SSE
                 yield f"data: {json.dumps({'token': token})}\n\n"
 
-            # Save assistant message
-            assistant_message = Message(
-                chat_id=chat_id,
-                role=MessageRole.assistant,
-                content=full_response,
-                sources=sources if sources else None
-            )
-            db.add(assistant_message)
+            # Use a new session for saving (original may be closed)
+            from database import SessionLocal
+            with SessionLocal() as stream_db:
+                # Save assistant message
+                assistant_message = Message(
+                    chat_id=chat_id,
+                    role=MessageRole.assistant,
+                    content=full_response,
+                    sources=sources if sources else None
+                )
+                stream_db.add(assistant_message)
 
-            # Log the query
-            response_time_ms = int((time.time() - start_time) * 1000)
-            log = Log(
-                user_id=current_user.id,
-                query=request.content,
-                response_time_ms=response_time_ms
-            )
-            db.add(log)
-            db.commit()
+                # Log the query
+                response_time_ms = int((time.time() - start_time) * 1000)
+                log = Log(
+                    user_id=user_id,
+                    query=query_content,
+                    response_time_ms=response_time_ms
+                )
+                stream_db.add(log)
+                stream_db.commit()
 
             # Send completion signal with sources
             yield f"data: {json.dumps({'done': True, 'sources': sources})}\n\n"
