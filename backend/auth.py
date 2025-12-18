@@ -75,6 +75,7 @@ async def get_current_user(
     # Update last_active
     user.last_active = datetime.utcnow()
     db.commit()
+    db.refresh(user)  # Re-bind user to session after commit
 
     return user
 
