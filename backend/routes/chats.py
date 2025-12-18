@@ -116,6 +116,16 @@ async def send_message(
     # Capture values before entering the generator (to avoid session issues)
     query_content = request.content
 
+    # Get conversation history (previous messages in this chat)
+    previous_messages = db.query(Message).filter(
+        Message.chat_id == chat_id
+    ).order_by(Message.created_at.asc()).all()
+
+    conversation_history = [
+        {"role": msg.role.value, "content": msg.content}
+        for msg in previous_messages
+    ]
+
     # Save user message
     user_message = Message(
         chat_id=chat_id,
@@ -131,8 +141,8 @@ async def send_message(
     chat.updated_at = datetime.utcnow()
     db.commit()
 
-    # Build RAG prompt
-    prompt, sources = await query_with_rag(query_content)
+    # Build RAG prompt with conversation history
+    prompt, sources = await query_with_rag(query_content, conversation_history)
 
     async def generate_stream():
         full_response = ""

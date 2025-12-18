@@ -82,20 +82,13 @@ async def get_current_user(
     if user is None:
         raise credentials_exception
 
-    # Extract values before any commits to avoid session issues
+    # Extract values immediately before anything else
     current_user = CurrentUser(
         id=user.id,
         email=user.email,
         name=user.name,
         role=user.role
     )
-
-    # Update last_active (non-blocking, ignore errors)
-    try:
-        user.last_active = datetime.utcnow()
-        db.commit()
-    except Exception:
-        db.rollback()
 
     # Return simple dataclass - no session binding needed
     return current_user
