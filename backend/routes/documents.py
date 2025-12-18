@@ -20,7 +20,7 @@ def get_file_extension(filename: str) -> str:
     return filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
 
 
-async def process_document_task(
+def process_document_task(
     document_id: str,
     file_path: str,
     file_name: str,
@@ -28,6 +28,7 @@ async def process_document_task(
     db_url: str
 ):
     """Background task to process a document."""
+    import asyncio
     from sqlalchemy import create_engine
     from sqlalchemy.orm import sessionmaker
 
@@ -40,13 +41,21 @@ async def process_document_task(
         if not document:
             return
 
-        # Process document
-        chunk_count = await process_document(document_id, file_path, file_name, file_type)
+        # Process document (create new event loop for background thread)
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            chunk_count = loop.run_until_complete(
+                process_document(document_id, file_path, file_name, file_type)
+            )
+        finally:
+            loop.close()
 
         # Update document status
         document.status = DocumentStatus.ready
         document.chunk_count = chunk_count
         db.commit()
+        print(f"Document processed successfully: {file_name} ({chunk_count} chunks)")
 
     except Exception as e:
         # Mark as error
@@ -55,6 +64,8 @@ async def process_document_task(
             document.status = DocumentStatus.error
             db.commit()
         print(f"Error processing document: {e}")
+        import traceback
+        traceback.print_exc()
 
     finally:
         db.close()
