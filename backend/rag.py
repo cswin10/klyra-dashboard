@@ -225,8 +225,16 @@ async def query_with_rag(query: str) -> Tuple[str, List[str]]:
     Perform a RAG query: find similar chunks and build prompt with context.
     Returns the built prompt and list of source documents.
     """
-    # Search for similar chunks
-    similar_chunks = await search_similar_chunks(query)
+    similar_chunks = []
+
+    # Only search if there are documents in the collection
+    if collection.count() > 0:
+        try:
+            similar_chunks = await search_similar_chunks(query)
+        except Exception as e:
+            # Log error but continue without RAG context
+            print(f"RAG search error (continuing without context): {e}")
+            similar_chunks = []
 
     # Build prompt with context
     prompt, sources = build_rag_prompt(query, similar_chunks)

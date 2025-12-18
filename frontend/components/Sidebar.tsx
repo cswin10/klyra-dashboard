@@ -2,9 +2,9 @@
 
 import React from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { usePathname } from "next/navigation";
 import {
-  ChevronLeft,
   LayoutGrid,
   MessageSquare,
   FileText,
@@ -38,11 +38,16 @@ export function Sidebar() {
     <aside className="fixed left-0 top-0 h-full w-sidebar bg-black/80 backdrop-blur-xl border-r border-white/5 flex flex-col">
       {/* Logo */}
       <div className="p-6 border-b border-white/5">
-        <Link href="/overview" className="flex items-center gap-2 group">
-          <div className="relative">
-            <ChevronLeft className="h-5 w-5 text-silver transition-all duration-300 group-hover:-translate-x-1 group-hover:text-white" />
+        <Link href="/overview" className="flex items-center gap-3 group">
+          <div className="relative w-8 h-8 transition-transform duration-300 group-hover:scale-110">
+            <Image
+              src="/klyra-icon.png"
+              alt="Klyra"
+              fill
+              className="object-contain drop-shadow-[0_0_8px_rgba(192,192,192,0.3)] group-hover:drop-shadow-[0_0_12px_rgba(192,192,192,0.5)]"
+            />
           </div>
-          <span className="text-xl font-semibold text-white tracking-tight glow-text">
+          <span className="text-xl font-semibold text-white tracking-tight">
             Klyra Labs
           </span>
         </Link>
