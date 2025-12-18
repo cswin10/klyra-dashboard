@@ -72,11 +72,18 @@ async def get_current_user(
     if user is None:
         raise credentials_exception
 
-    # Update last_active
-    user.last_active = datetime.utcnow()
-    db.commit()
-    db.refresh(user)  # Re-bind user to session after commit
+    # Store user_id as plain attribute to avoid session issues
+    user_id_value = user.id
 
+    # Update last_active (non-blocking, ignore errors)
+    try:
+        user.last_active = datetime.utcnow()
+        db.commit()
+    except Exception:
+        db.rollback()
+
+    # Return fresh user query to ensure session binding
+    user = db.query(User).filter(User.id == user_id_value).first()
     return user
 
 
