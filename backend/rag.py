@@ -1,0 +1,239 @@
+import os
+import asyncio
+from pathlib import Path
+from typing import List, Tuple, Optional
+import chromadb
+from chromadb.config import Settings as ChromaSettings
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+from PyPDF2 import PdfReader
+from docx import Document as DocxDocument
+from config import settings, CHROMA_DIR, UPLOADS_DIR
+from ollama import generate_embedding
+
+# Initialize ChromaDB client
+chroma_client = chromadb.PersistentClient(
+    path=str(CHROMA_DIR),
+    settings=ChromaSettings(anonymized_telemetry=False)
+)
+
+# Get or create the documents collection
+collection = chroma_client.get_or_create_collection(
+    name="documents",
+    metadata={"hnsw:space": "cosine"}
+)
+
+
+def extract_text_from_pdf(file_path: str) -> str:
+    """Extract text content from a PDF file."""
+    reader = PdfReader(file_path)
+    text = ""
+    for page in reader.pages:
+        page_text = page.extract_text()
+        if page_text:
+            text += page_text + "\n"
+    return text.strip()
+
+
+def extract_text_from_docx(file_path: str) -> str:
+    """Extract text content from a DOCX file."""
+    doc = DocxDocument(file_path)
+    text = ""
+    for paragraph in doc.paragraphs:
+        text += paragraph.text + "\n"
+    return text.strip()
+
+
+def extract_text_from_txt(file_path: str) -> str:
+    """Extract text content from a TXT file."""
+    with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
+        return f.read().strip()
+
+
+def extract_text(file_path: str, file_type: str) -> str:
+    """Extract text from a file based on its type."""
+    file_type = file_type.lower()
+    if file_type == "pdf":
+        return extract_text_from_pdf(file_path)
+    elif file_type in ["docx", "doc"]:
+        return extract_text_from_docx(file_path)
+    elif file_type == "txt":
+        return extract_text_from_txt(file_path)
+    else:
+        raise ValueError(f"Unsupported file type: {file_type}")
+
+
+def chunk_text(text: str) -> List[str]:
+    """Split text into chunks for embedding."""
+    splitter = RecursiveCharacterTextSplitter(
+        chunk_size=settings.CHUNK_SIZE,
+        chunk_overlap=settings.CHUNK_OVERLAP,
+        length_function=len,
+        separators=["\n\n", "\n", ". ", " ", ""]
+    )
+    return splitter.split_text(text)
+
+
+async def process_document(
+    document_id: str,
+    file_path: str,
+    file_name: str,
+    file_type: str
+) -> int:
+    """
+    Process a document: extract text, chunk it, generate embeddings, and store in ChromaDB.
+    Returns the number of chunks created.
+    """
+    # Extract text
+    text = extract_text(file_path, file_type)
+    if not text:
+        raise ValueError("No text could be extracted from the document")
+
+    # Split into chunks
+    chunks = chunk_text(text)
+    if not chunks:
+        raise ValueError("No chunks could be created from the document")
+
+    # Generate embeddings and store in ChromaDB
+    ids = []
+    embeddings = []
+    documents = []
+    metadatas = []
+
+    for i, chunk in enumerate(chunks):
+        chunk_id = f"{document_id}_chunk_{i}"
+        embedding = await generate_embedding(chunk)
+
+        ids.append(chunk_id)
+        embeddings.append(embedding)
+        documents.append(chunk)
+        metadatas.append({
+            "document_id": document_id,
+            "document_name": file_name,
+            "chunk_index": i
+        })
+
+    # Add to ChromaDB collection
+    collection.add(
+        ids=ids,
+        embeddings=embeddings,
+        documents=documents,
+        metadatas=metadatas
+    )
+
+    return len(chunks)
+
+
+def delete_document_chunks(document_id: str) -> None:
+    """Delete all chunks associated with a document from ChromaDB."""
+    # Get all chunk IDs for this document
+    results = collection.get(
+        where={"document_id": document_id}
+    )
+
+    if results and results["ids"]:
+        collection.delete(ids=results["ids"])
+
+
+async def search_similar_chunks(
+    query: str,
+    top_k: int = None
+) -> List[Tuple[str, str, float]]:
+    """
+    Search for chunks similar to the query.
+    Returns list of tuples: (document_name, chunk_text, score)
+    """
+    top_k = top_k or settings.TOP_K_RESULTS
+
+    # Generate query embedding
+    query_embedding = await generate_embedding(query)
+
+    # Search ChromaDB
+    results = collection.query(
+        query_embeddings=[query_embedding],
+        n_results=top_k,
+        include=["documents", "metadatas", "distances"]
+    )
+
+    if not results or not results["documents"] or not results["documents"][0]:
+        return []
+
+    # Format results
+    formatted_results = []
+    for i, doc in enumerate(results["documents"][0]):
+        metadata = results["metadatas"][0][i]
+        distance = results["distances"][0][i]
+        # Convert distance to similarity score (1 - distance for cosine)
+        score = 1 - distance
+        formatted_results.append((
+            metadata["document_name"],
+            doc,
+            score
+        ))
+
+    return formatted_results
+
+
+def build_rag_prompt(query: str, context_chunks: List[Tuple[str, str, float]]) -> Tuple[str, List[str]]:
+    """
+    Build a prompt with RAG context.
+    Returns the prompt and list of source document names.
+    """
+    if not context_chunks:
+        # No context available
+        prompt = f"""You are Klyra, a helpful and professional AI assistant. You help users with their questions.
+
+INSTRUCTIONS:
+- Be concise and clear
+- If you don't know something, say so honestly
+
+USER QUESTION: {query}
+
+RESPONSE:"""
+        return prompt, []
+
+    # Build context string
+    context_parts = []
+    source_docs = set()
+    for doc_name, chunk_text, score in context_chunks:
+        context_parts.append(f"[Document: {doc_name}]\n{chunk_text}")
+        source_docs.add(doc_name)
+
+    context_str = "\n\n".join(context_parts)
+
+    prompt = f"""You are Klyra, a helpful and professional AI assistant. You help users find information from their company documents.
+
+INSTRUCTIONS:
+- Answer based on the provided context
+- If the context doesn't contain the answer, say "I couldn't find that information in the uploaded documents"
+- Be concise and clear
+- Reference which documents you found the information in
+
+CONTEXT:
+---
+{context_str}
+---
+
+USER QUESTION: {query}
+
+RESPONSE:"""
+
+    return prompt, list(source_docs)
+
+
+async def query_with_rag(query: str) -> Tuple[str, List[str]]:
+    """
+    Perform a RAG query: find similar chunks and build prompt with context.
+    Returns the built prompt and list of source documents.
+    """
+    # Search for similar chunks
+    similar_chunks = await search_similar_chunks(query)
+
+    # Build prompt with context
+    prompt, sources = build_rag_prompt(query, similar_chunks)
+
+    return prompt, sources
+
+
+def get_total_chunks() -> int:
+    """Get the total number of chunks in the collection."""
+    return collection.count()
