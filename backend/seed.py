@@ -9,7 +9,7 @@ from models import User, UserRole
 from auth import get_password_hash
 
 DEFAULT_ADMIN = {
-    "email": "admin@klyra.local",
+    "email": "admin@klyra.io",
     "name": "Administrator",
     "password": "admin123",
     "role": UserRole.admin
