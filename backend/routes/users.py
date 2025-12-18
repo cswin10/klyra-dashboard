@@ -4,14 +4,14 @@ from sqlalchemy.orm import Session
 from database import get_db
 from models import User
 from schemas import UserCreate, UserUpdate, UserResponse
-from auth import get_current_admin_user, get_password_hash
+from auth import get_current_admin_user, get_password_hash, CurrentUser
 
 router = APIRouter(prefix="/api/users", tags=["users"])
 
 
 @router.get("", response_model=List[UserResponse])
 async def get_users(
-    current_user: User = Depends(get_current_admin_user),
+    current_user: CurrentUser = Depends(get_current_admin_user),
     db: Session = Depends(get_db)
 ):
     """Get all users (admin only)."""
@@ -22,7 +22,7 @@ async def get_users(
 @router.post("", response_model=UserResponse)
 async def create_user(
     request: UserCreate,
-    current_user: User = Depends(get_current_admin_user),
+    current_user: CurrentUser = Depends(get_current_admin_user),
     db: Session = Depends(get_db)
 ):
     """Create a new user (admin only)."""
@@ -50,7 +50,7 @@ async def create_user(
 @router.get("/{user_id}", response_model=UserResponse)
 async def get_user(
     user_id: str,
-    current_user: User = Depends(get_current_admin_user),
+    current_user: CurrentUser = Depends(get_current_admin_user),
     db: Session = Depends(get_db)
 ):
     """Get a specific user (admin only)."""
@@ -67,7 +67,7 @@ async def get_user(
 async def update_user(
     user_id: str,
     request: UserUpdate,
-    current_user: User = Depends(get_current_admin_user),
+    current_user: CurrentUser = Depends(get_current_admin_user),
     db: Session = Depends(get_db)
 ):
     """Update a user (admin only)."""
@@ -109,7 +109,7 @@ async def update_user(
 @router.delete("/{user_id}")
 async def delete_user(
     user_id: str,
-    current_user: User = Depends(get_current_admin_user),
+    current_user: CurrentUser = Depends(get_current_admin_user),
     db: Session = Depends(get_db)
 ):
     """Delete a user (admin only)."""

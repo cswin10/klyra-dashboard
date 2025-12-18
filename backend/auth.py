@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta
 from typing import Optional
+from dataclasses import dataclass
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from jose import JWTError, jwt
@@ -14,6 +15,15 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 # HTTP Bearer security
 security = HTTPBearer()
+
+
+@dataclass
+class CurrentUser:
+    """Simple user object that doesn't require database session."""
+    id: str
+    email: str
+    name: str
+    role: UserRole
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
@@ -50,7 +60,7 @@ def decode_token(token: str) -> Optional[dict]:
 async def get_current_user(
     credentials: HTTPAuthorizationCredentials = Depends(security),
     db: Session = Depends(get_db)
-) -> User:
+) -> CurrentUser:
     """Get the current authenticated user from the JWT token."""
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
@@ -72,8 +82,13 @@ async def get_current_user(
     if user is None:
         raise credentials_exception
 
-    # Store user_id as plain attribute to avoid session issues
-    user_id_value = user.id
+    # Extract values before any commits to avoid session issues
+    current_user = CurrentUser(
+        id=user.id,
+        email=user.email,
+        name=user.name,
+        role=user.role
+    )
 
     # Update last_active (non-blocking, ignore errors)
     try:
@@ -82,14 +97,13 @@ async def get_current_user(
     except Exception:
         db.rollback()
 
-    # Return fresh user query to ensure session binding
-    user = db.query(User).filter(User.id == user_id_value).first()
-    return user
+    # Return simple dataclass - no session binding needed
+    return current_user
 
 
 async def get_current_admin_user(
-    current_user: User = Depends(get_current_user)
-) -> User:
+    current_user: CurrentUser = Depends(get_current_user)
+) -> CurrentUser:
     """Get the current user and verify they are an admin."""
     if current_user.role != UserRole.admin:
         raise HTTPException(

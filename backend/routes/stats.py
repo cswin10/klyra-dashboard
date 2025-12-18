@@ -5,14 +5,14 @@ from sqlalchemy import func, and_
 from database import get_db
 from models import User, Log, Document
 from schemas import DashboardStats, DailyQueryCount
-from auth import get_current_user
+from auth import get_current_user, CurrentUser
 
 router = APIRouter(prefix="/api/stats", tags=["stats"])
 
 
 @router.get("", response_model=DashboardStats)
 async def get_dashboard_stats(
-    current_user: User = Depends(get_current_user),
+    current_user: CurrentUser = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """Get dashboard statistics."""

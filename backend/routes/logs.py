@@ -3,9 +3,9 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import desc
 from database import get_db
-from models import User, Log
+from models import Log
 from schemas import LogResponse, LogsListResponse
-from auth import get_current_admin_user
+from auth import get_current_admin_user, CurrentUser
 
 router = APIRouter(prefix="/api/logs", tags=["logs"])
 
@@ -15,7 +15,7 @@ async def get_logs(
     user_id: Optional[str] = Query(None, description="Filter by user ID"),
     limit: int = Query(50, ge=1, le=500),
     offset: int = Query(0, ge=0),
-    current_user: User = Depends(get_current_admin_user),
+    current_user: CurrentUser = Depends(get_current_admin_user),
     db: Session = Depends(get_db)
 ):
     """Get paginated logs (admin only)."""
