@@ -2,7 +2,8 @@
 
 import React, { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { ChevronLeft, Mail, Lock, AlertCircle } from "lucide-react";
+import Image from "next/image";
+import { Mail, Lock, AlertCircle } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 
 export default function LoginPage() {
@@ -56,9 +57,16 @@ export default function LoginPage() {
           <div className="absolute top-0 left-0 w-full h-px bg-gradient-to-r from-transparent via-silver/30 to-transparent" />
 
           {/* Logo */}
-          <div className="flex items-center justify-center gap-2 mb-8">
-            <ChevronLeft className="h-6 w-6 text-silver" />
-            <span className="text-2xl font-semibold text-white glow-text tracking-tight">
+          <div className="flex flex-col items-center justify-center mb-8">
+            <div className="relative w-16 h-16 mb-4">
+              <Image
+                src="/klyra-icon.png"
+                alt="Klyra Labs"
+                fill
+                className="object-contain drop-shadow-[0_0_20px_rgba(192,192,192,0.3)]"
+              />
+            </div>
+            <span className="text-2xl font-semibold text-white tracking-tight">
               Klyra Labs
             </span>
           </div>
