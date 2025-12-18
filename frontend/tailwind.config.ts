@@ -9,26 +9,33 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        // Background colors
-        "page-bg": "#0d1117",
-        "sidebar-bg": "#0a0e14",
-        "card-bg": "#151d28",
-        "card-border": "#1e2d3d",
-        "icon-bg": "#1a2535",
-        "input-bg": "#0d1117",
-        "input-border": "#1e2d3d",
+        // Background colors - pure blacks
+        "page-bg": "#000000",
+        "sidebar-bg": "#050508",
+        "card-bg": "rgba(15, 15, 20, 0.6)",
+        "card-border": "rgba(255, 255, 255, 0.08)",
+        "icon-bg": "rgba(255, 255, 255, 0.05)",
+        "input-bg": "rgba(0, 0, 0, 0.4)",
+        "input-border": "rgba(255, 255, 255, 0.1)",
 
-        // Accent colors
-        "accent": "#3dd9c6",
-        "accent-hover": "#4ae3d0",
-        "status-green": "#22c55e",
-        "status-yellow": "#eab308",
-        "status-red": "#ef4444",
+        // Accent colors - silver and navy
+        "accent": "#c0c0c0",
+        "accent-hover": "#e8e8e8",
+        "silver": "#c0c0c0",
+        "silver-bright": "#f0f0f0",
+        "navy": "#1a365d",
+        "navy-light": "#2d4a7c",
+        "navy-glow": "#3d5a9f",
+
+        // Status colors
+        "status-green": "#00ff88",
+        "status-yellow": "#ffcc00",
+        "status-red": "#ff4466",
 
         // Text colors
         "text-primary": "#ffffff",
-        "text-secondary": "#8899a8",
-        "text-muted": "#5a6a78",
+        "text-secondary": "#a0a0b0",
+        "text-muted": "#606070",
       },
       fontFamily: {
         sans: ["Inter", "system-ui", "sans-serif"],
@@ -46,11 +53,40 @@ const config: Config = {
         "card-padding": "24px",
       },
       borderRadius: {
-        "card": "12px",
+        "card": "16px",
       },
       boxShadow: {
-        "card": "0 4px 6px -1px rgba(0, 0, 0, 0.3), 0 2px 4px -2px rgba(0, 0, 0, 0.2)",
-        "glow": "0 0 20px rgba(61, 217, 198, 0.3)",
+        "card": "0 8px 32px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.05)",
+        "glow": "0 0 30px rgba(192, 192, 192, 0.2)",
+        "glow-navy": "0 0 30px rgba(45, 74, 124, 0.4)",
+        "glass": "0 8px 32px 0 rgba(0, 0, 0, 0.37)",
+      },
+      backgroundImage: {
+        "glass-gradient": "linear-gradient(135deg, rgba(255, 255, 255, 0.1) 0%, rgba(255, 255, 255, 0.02) 100%)",
+        "shimmer": "linear-gradient(90deg, transparent 0%, rgba(255, 255, 255, 0.1) 50%, transparent 100%)",
+        "navy-gradient": "linear-gradient(135deg, rgba(26, 54, 93, 0.4) 0%, rgba(45, 74, 124, 0.2) 100%)",
+      },
+      backdropBlur: {
+        "glass": "20px",
+      },
+      animation: {
+        "shimmer": "shimmer 2s infinite",
+        "glow-pulse": "glow-pulse 2s ease-in-out infinite",
+        "float": "float 6s ease-in-out infinite",
+      },
+      keyframes: {
+        shimmer: {
+          "0%": { transform: "translateX(-100%)" },
+          "100%": { transform: "translateX(100%)" },
+        },
+        "glow-pulse": {
+          "0%, 100%": { opacity: "0.4" },
+          "50%": { opacity: "0.8" },
+        },
+        float: {
+          "0%, 100%": { transform: "translateY(0)" },
+          "50%": { transform: "translateY(-10px)" },
+        },
       },
       transitionDuration: {
         "fast": "200ms",

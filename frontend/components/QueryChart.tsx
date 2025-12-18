@@ -20,13 +20,16 @@ interface QueryChartProps {
 
 export function QueryChart({ data }: QueryChartProps) {
   return (
-    <div className="bg-card-bg rounded-card border border-card-border p-card-padding shadow-card">
+    <div className="glass-card rounded-card p-card-padding relative overflow-hidden">
+      {/* Background gradient accent */}
+      <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-silver/20 to-transparent" />
+
       <div className="flex items-center justify-between mb-6">
-        <h3 className="text-lg font-semibold text-text-primary">
+        <h3 className="text-lg font-semibold text-white">
           Queries Over Time
         </h3>
         <div className="flex items-center gap-2">
-          <div className="w-3 h-3 rounded-full bg-accent"></div>
+          <div className="w-2 h-2 rounded-full bg-silver shadow-[0_0_8px_rgba(192,192,192,0.6)]" />
           <span className="text-sm text-text-secondary">Queries</span>
         </div>
       </div>
@@ -39,24 +42,32 @@ export function QueryChart({ data }: QueryChartProps) {
           >
             <defs>
               <linearGradient id="queryGradient" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="#3dd9c6" stopOpacity={0.3} />
-                <stop offset="100%" stopColor="#3dd9c6" stopOpacity={0} />
+                <stop offset="0%" stopColor="#c0c0c0" stopOpacity={0.2} />
+                <stop offset="50%" stopColor="#2d4a7c" stopOpacity={0.1} />
+                <stop offset="100%" stopColor="#1a365d" stopOpacity={0} />
               </linearGradient>
+              <filter id="glow">
+                <feGaussianBlur stdDeviation="3" result="coloredBlur"/>
+                <feMerge>
+                  <feMergeNode in="coloredBlur"/>
+                  <feMergeNode in="SourceGraphic"/>
+                </feMerge>
+              </filter>
             </defs>
             <CartesianGrid
               strokeDasharray="3 3"
-              stroke="#1e2d3d"
+              stroke="rgba(255,255,255,0.05)"
               vertical={false}
             />
             <XAxis
               dataKey="date"
-              stroke="#5a6a78"
+              stroke="#606070"
               fontSize={12}
               tickLine={false}
               axisLine={false}
             />
             <YAxis
-              stroke="#5a6a78"
+              stroke="#606070"
               fontSize={12}
               tickLine={false}
               axisLine={false}
@@ -64,22 +75,25 @@ export function QueryChart({ data }: QueryChartProps) {
             />
             <Tooltip
               contentStyle={{
-                backgroundColor: "#151d28",
-                border: "1px solid #1e2d3d",
-                borderRadius: "8px",
+                backgroundColor: "rgba(15, 15, 20, 0.9)",
+                border: "1px solid rgba(255, 255, 255, 0.1)",
+                borderRadius: "12px",
                 color: "#ffffff",
+                backdropFilter: "blur(10px)",
+                boxShadow: "0 8px 32px rgba(0, 0, 0, 0.4)",
               }}
-              itemStyle={{ color: "#3dd9c6" }}
-              labelStyle={{ color: "#8899a8" }}
+              itemStyle={{ color: "#c0c0c0" }}
+              labelStyle={{ color: "#a0a0b0" }}
             />
             <Area
               type="monotone"
               dataKey="count"
-              stroke="#3dd9c6"
+              stroke="#c0c0c0"
               strokeWidth={2}
               fill="url(#queryGradient)"
-              dot={{ fill: "#3dd9c6", strokeWidth: 0, r: 4 }}
-              activeDot={{ fill: "#3dd9c6", strokeWidth: 0, r: 6 }}
+              filter="url(#glow)"
+              dot={{ fill: "#c0c0c0", strokeWidth: 0, r: 4 }}
+              activeDot={{ fill: "#ffffff", strokeWidth: 0, r: 6, filter: "url(#glow)" }}
             />
           </AreaChart>
         </ResponsiveContainer>
