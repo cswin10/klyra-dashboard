@@ -8,7 +8,7 @@ engine = create_engine(
     connect_args={"check_same_thread": False}  # Needed for SQLite
 )
 
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine, expire_on_commit=False)
 
 Base = declarative_base()
 
