@@ -6,9 +6,9 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from database import get_db
-from models import User, Chat, Message, MessageRole, Log
+from models import Chat, Message, MessageRole, Log
 from schemas import ChatCreate, ChatResponse, ChatListResponse, MessageCreate, MessageResponse
-from auth import get_current_user
+from auth import get_current_user, CurrentUser
 from rag import query_with_rag
 from ollama import generate_text
 
@@ -17,7 +17,7 @@ router = APIRouter(prefix="/api/chats", tags=["chats"])
 
 @router.get("", response_model=List[ChatListResponse])
 async def get_chats(
-    current_user: User = Depends(get_current_user),
+    current_user: CurrentUser = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """Get all chats for the current user."""
@@ -31,7 +31,7 @@ async def get_chats(
 @router.post("", response_model=ChatResponse)
 async def create_chat(
     request: ChatCreate,
-    current_user: User = Depends(get_current_user),
+    current_user: CurrentUser = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """Create a new chat."""
@@ -48,7 +48,7 @@ async def create_chat(
 @router.get("/{chat_id}", response_model=ChatResponse)
 async def get_chat(
     chat_id: str,
-    current_user: User = Depends(get_current_user),
+    current_user: CurrentUser = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """Get a specific chat with all messages."""
@@ -69,7 +69,7 @@ async def get_chat(
 @router.delete("/{chat_id}")
 async def delete_chat(
     chat_id: str,
-    current_user: User = Depends(get_current_user),
+    current_user: CurrentUser = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """Delete a chat."""
@@ -93,7 +93,7 @@ async def delete_chat(
 async def send_message(
     chat_id: str,
     request: MessageCreate,
-    current_user: User = Depends(get_current_user),
+    current_user: CurrentUser = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """Send a message and get a streaming response."""

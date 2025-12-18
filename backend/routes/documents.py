@@ -4,9 +4,9 @@ from typing import List
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, BackgroundTasks
 from sqlalchemy.orm import Session
 from database import get_db
-from models import User, Document, DocumentStatus
+from models import Document, DocumentStatus
 from schemas import DocumentResponse
-from auth import get_current_user
+from auth import get_current_user, CurrentUser
 from config import UPLOADS_DIR
 from rag import process_document, delete_document_chunks
 
@@ -62,7 +62,7 @@ async def process_document_task(
 
 @router.get("", response_model=List[DocumentResponse])
 async def get_documents(
-    current_user: User = Depends(get_current_user),
+    current_user: CurrentUser = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """Get all documents."""
@@ -74,7 +74,7 @@ async def get_documents(
 async def upload_document(
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
-    current_user: User = Depends(get_current_user),
+    current_user: CurrentUser = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """Upload and process a document."""
@@ -127,7 +127,7 @@ async def upload_document(
 @router.delete("/{document_id}")
 async def delete_document(
     document_id: str,
-    current_user: User = Depends(get_current_user),
+    current_user: CurrentUser = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """Delete a document and its embeddings."""

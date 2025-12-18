@@ -9,7 +9,8 @@ from auth import (
     create_access_token,
     get_current_user,
     get_password_hash,
-    verify_password
+    verify_password,
+    CurrentUser
 )
 from config import settings
 
@@ -39,26 +40,32 @@ async def login(request: LoginRequest, db: Session = Depends(get_db)):
 
 
 @router.post("/logout")
-async def logout(current_user: User = Depends(get_current_user)):
+async def logout(current_user: CurrentUser = Depends(get_current_user)):
     """Logout current user (token invalidation would be handled client-side)."""
     return {"message": "Successfully logged out"}
 
 
 @router.get("/me", response_model=UserResponse)
-async def get_me(current_user: User = Depends(get_current_user)):
+async def get_me(
+    current_user: CurrentUser = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
     """Get current authenticated user info."""
-    return UserResponse.model_validate(current_user)
+    user = db.query(User).filter(User.id == current_user.id).first()
+    return UserResponse.model_validate(user)
 
 
 @router.put("/profile", response_model=UserResponse)
 async def update_profile(
     request: ProfileUpdateRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: CurrentUser = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """Update current user's profile."""
+    user = db.query(User).filter(User.id == current_user.id).first()
+
     if request.name:
-        current_user.name = request.name
+        user.name = request.name
     if request.email:
         # Check if email is already taken
         existing = db.query(User).filter(
@@ -70,26 +77,28 @@ async def update_profile(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Email already in use"
             )
-        current_user.email = request.email
+        user.email = request.email
 
     db.commit()
-    db.refresh(current_user)
-    return UserResponse.model_validate(current_user)
+    db.refresh(user)
+    return UserResponse.model_validate(user)
 
 
 @router.put("/password")
 async def change_password(
     request: PasswordChangeRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: CurrentUser = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """Change current user's password."""
-    if not verify_password(request.current_password, current_user.password_hash):
+    user = db.query(User).filter(User.id == current_user.id).first()
+
+    if not verify_password(request.current_password, user.password_hash):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Current password is incorrect"
         )
 
-    current_user.password_hash = get_password_hash(request.new_password)
+    user.password_hash = get_password_hash(request.new_password)
     db.commit()
     return {"message": "Password changed successfully"}

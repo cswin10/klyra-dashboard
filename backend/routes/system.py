@@ -3,9 +3,8 @@ import time
 import subprocess
 import shutil
 from fastapi import APIRouter, Depends, HTTPException
-from models import User
 from schemas import SystemStats
-from auth import get_current_admin_user
+from auth import get_current_admin_user, CurrentUser
 from config import settings, DATA_DIR
 from ollama import get_model_info, check_ollama_status
 
@@ -49,7 +48,7 @@ def get_gpu_info() -> dict:
 
 @router.get("/stats", response_model=SystemStats)
 async def get_system_stats(
-    current_user: User = Depends(get_current_admin_user)
+    current_user: CurrentUser = Depends(get_current_admin_user)
 ):
     """Get system statistics (admin only)."""
     # Get model info
@@ -78,7 +77,7 @@ async def get_system_stats(
 
 @router.post("/restart-ollama")
 async def restart_ollama(
-    current_user: User = Depends(get_current_admin_user)
+    current_user: CurrentUser = Depends(get_current_admin_user)
 ):
     """Restart Ollama service (admin only)."""
     try:
