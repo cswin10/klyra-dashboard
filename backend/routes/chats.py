@@ -97,9 +97,12 @@ async def send_message(
     db: Session = Depends(get_db)
 ):
     """Send a message and get a streaming response."""
+    # Capture user_id immediately to avoid session issues
+    user_id = current_user.id
+
     chat = db.query(Chat).filter(
         Chat.id == chat_id,
-        Chat.user_id == current_user.id
+        Chat.user_id == user_id
     ).first()
 
     if not chat:
@@ -111,7 +114,6 @@ async def send_message(
     start_time = time.time()
 
     # Capture values before entering the generator (to avoid session issues)
-    user_id = current_user.id
     query_content = request.content
 
     # Save user message
