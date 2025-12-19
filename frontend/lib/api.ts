@@ -19,6 +19,18 @@ export interface Chat {
   messages: Message[];
 }
 
+export interface ChatExport {
+  id: string;
+  title: string;
+  created_at: string;
+  messages: {
+    role: "user" | "assistant";
+    content: string;
+    sources: string[] | null;
+    created_at: string;
+  }[];
+}
+
 export interface ChatListItem {
   id: string;
   title: string | null;
@@ -256,6 +268,10 @@ class ApiClient {
     await this.request(`/api/chats/${chatId}`, { method: "DELETE" });
   }
 
+  async exportChat(chatId: string): Promise<ChatExport> {
+    return this.request(`/api/chats/${chatId}/export`);
+  }
+
   async sendMessage(
     chatId: string,
     content: string,
@@ -371,6 +387,35 @@ class ApiClient {
 
   async deleteUser(userId: string): Promise<void> {
     await this.request(`/api/users/${userId}`, { method: "DELETE" });
+  }
+
+  async bulkImportUsers(file: File): Promise<{
+    success: boolean;
+    summary: { total_processed: number; created: number; skipped: number; errors: number };
+    details: {
+      created: { row: number; email: string; name: string; role: string }[];
+      skipped: { row: number; email: string; reason: string }[];
+      errors: { row: number; email: string; error: string }[];
+    };
+  }> {
+    const token = this.getToken();
+    const formData = new FormData();
+    formData.append("file", file);
+
+    const response = await fetch(`${API_BASE_URL}/api/users/bulk-import`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+      body: formData,
+    });
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ detail: "Failed to import users" }));
+      throw new Error(error.detail);
+    }
+
+    return response.json();
   }
 
   // System (admin)

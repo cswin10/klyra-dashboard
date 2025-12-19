@@ -89,6 +89,44 @@ async def delete_chat(
     return {"message": "Chat deleted successfully"}
 
 
+@router.get("/{chat_id}/export")
+async def export_chat(
+    chat_id: str,
+    current_user: CurrentUser = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Export a chat for PDF generation."""
+    chat = db.query(Chat).filter(
+        Chat.id == chat_id,
+        Chat.user_id == current_user.id
+    ).first()
+
+    if not chat:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Chat not found"
+        )
+
+    messages = db.query(Message).filter(
+        Message.chat_id == chat_id
+    ).order_by(Message.created_at.asc()).all()
+
+    return {
+        "id": chat.id,
+        "title": chat.title or "Klyra Chat",
+        "created_at": chat.created_at.isoformat(),
+        "messages": [
+            {
+                "role": msg.role.value,
+                "content": msg.content,
+                "sources": msg.sources,
+                "created_at": msg.created_at.isoformat()
+            }
+            for msg in messages
+        ]
+    }
+
+
 @router.post("/{chat_id}/messages")
 async def send_message(
     chat_id: str,
