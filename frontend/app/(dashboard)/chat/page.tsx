@@ -1,9 +1,9 @@
 "use client";
 
 import React, { useEffect, useState, useRef, useCallback } from "react";
-import { Plus, MessageSquare, Trash2, Download } from "lucide-react";
+import { Plus, MessageSquare, Trash2, Download, FileText, Mail, HelpCircle, GitCompare, Search, List } from "lucide-react";
 import { ChatMessage, ChatInput } from "@/components";
-import { api, ChatListItem, Message } from "@/lib/api";
+import { api, ChatListItem, Message, PromptTemplate } from "@/lib/api";
 import { cn, formatRelativeTime, truncate } from "@/lib/utils";
 
 interface LocalMessage {
@@ -14,6 +14,16 @@ interface LocalMessage {
   isStreaming?: boolean;
 }
 
+// Icon map for templates
+const TEMPLATE_ICONS: Record<string, React.ReactNode> = {
+  "file-text": <FileText className="h-5 w-5" />,
+  "mail": <Mail className="h-5 w-5" />,
+  "help-circle": <HelpCircle className="h-5 w-5" />,
+  "git-compare": <GitCompare className="h-5 w-5" />,
+  "search": <Search className="h-5 w-5" />,
+  "list": <List className="h-5 w-5" />,
+};
+
 export default function ChatPage() {
   const [chats, setChats] = useState<ChatListItem[]>([]);
   const [activeChatId, setActiveChatId] = useState<string | null>(null);
@@ -21,6 +31,7 @@ export default function ChatPage() {
   const [isLoadingChats, setIsLoadingChats] = useState(true);
   const [isLoadingMessages, setIsLoadingMessages] = useState(false);
   const [isSending, setIsSending] = useState(false);
+  const [templates, setTemplates] = useState<PromptTemplate[]>([]);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -32,7 +43,7 @@ export default function ChatPage() {
     scrollToBottom();
   }, [messages, scrollToBottom]);
 
-  // Load chats on mount
+  // Load chats and templates on mount
   useEffect(() => {
     const fetchChats = async () => {
       try {
@@ -45,7 +56,17 @@ export default function ChatPage() {
       }
     };
 
+    const fetchTemplates = async () => {
+      try {
+        const templateList = await api.getTemplates();
+        setTemplates(templateList);
+      } catch (error) {
+        console.error("Failed to fetch templates:", error);
+      }
+    };
+
     fetchChats();
+    fetchTemplates();
   }, []);
 
   // Load messages when active chat changes
@@ -318,11 +339,32 @@ export default function ChatPage() {
                   <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-accent"></div>
                 </div>
               ) : messages.length === 0 ? (
-                <div className="flex items-center justify-center h-full">
-                  <div className="text-center">
-                    <p className="text-text-secondary text-sm">
-                      Send a message to start the conversation
-                    </p>
+                <div className="flex flex-col items-center justify-center h-full">
+                  <MessageSquare className="h-10 w-10 text-text-muted mb-4" />
+                  <p className="text-text-secondary text-sm mb-6">
+                    Start a conversation or try a quick prompt:
+                  </p>
+                  <div className="grid grid-cols-2 md:grid-cols-3 gap-3 max-w-2xl">
+                    {templates.slice(0, 6).map((template) => (
+                      <button
+                        key={template.id}
+                        onClick={() => handleSendMessage(template.prompt)}
+                        disabled={isSending}
+                        className="flex items-start gap-3 p-4 bg-card-bg border border-card-border rounded-lg text-left hover:border-accent/50 hover:bg-card-bg/80 transition-all group"
+                      >
+                        <span className="text-accent group-hover:text-accent-hover transition-colors">
+                          {TEMPLATE_ICONS[template.icon || "file-text"] || <FileText className="h-5 w-5" />}
+                        </span>
+                        <div className="flex-1 min-w-0">
+                          <p className="font-medium text-text-primary text-sm truncate">
+                            {template.title}
+                          </p>
+                          <p className="text-xs text-text-muted line-clamp-2">
+                            {template.description}
+                          </p>
+                        </div>
+                      </button>
+                    ))}
                   </div>
                 </div>
               ) : (

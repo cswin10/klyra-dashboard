@@ -181,6 +181,18 @@ export interface AuditLogResponse {
   offset: number;
 }
 
+export interface PromptTemplate {
+  id: string;
+  title: string;
+  description: string | null;
+  prompt: string;
+  category: string | null;
+  icon: string | null;
+  is_system: boolean;
+  created_by: string | null;
+  created_at: string;
+}
+
 // API Client
 class ApiClient {
   private getToken(): string | null {
@@ -485,6 +497,22 @@ class ApiClient {
 
     const query = searchParams.toString();
     return this.request(`/api/audit${query ? `?${query}` : ""}`);
+  }
+
+  // Prompt templates
+  async getTemplates(): Promise<PromptTemplate[]> {
+    return this.request("/api/templates");
+  }
+
+  async createTemplate(data: { title: string; description?: string; prompt: string; category?: string; icon?: string }): Promise<PromptTemplate> {
+    return this.request("/api/templates", {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  }
+
+  async deleteTemplate(templateId: string): Promise<void> {
+    await this.request(`/api/templates/${templateId}`, { method: "DELETE" });
   }
 }
 

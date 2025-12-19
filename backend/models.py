@@ -158,3 +158,21 @@ class AuditLog(Base):
 
     # Relationships
     user = relationship("User")
+
+
+class PromptTemplate(Base):
+    """Pre-defined prompt templates for common tasks."""
+    __tablename__ = "prompt_templates"
+
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    title = Column(String(255), nullable=False)
+    description = Column(Text, nullable=True)
+    prompt = Column(Text, nullable=False)
+    category = Column(String(100), nullable=True)  # e.g., "summarize", "email", "analyze"
+    icon = Column(String(50), nullable=True)  # Icon name for frontend
+    is_system = Column(Integer, default=0)  # 1 = system template (not deletable)
+    created_by = Column(String(36), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    # Relationships
+    creator = relationship("User")

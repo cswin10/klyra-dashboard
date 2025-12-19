@@ -7,6 +7,7 @@ from .logs import router as logs_router
 from .stats import router as stats_router
 from .feedback import router as feedback_router
 from .audit import router as audit_router
+from .templates import router as templates_router
 
 __all__ = [
     "auth_router",
@@ -18,4 +19,5 @@ __all__ = [
     "stats_router",
     "feedback_router",
     "audit_router",
+    "templates_router",
 ]
