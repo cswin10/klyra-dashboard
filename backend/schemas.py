@@ -103,6 +103,23 @@ class DocumentResponse(BaseModel):
     chunk_count: int
     uploaded_by: str
     uploaded_at: datetime
+    version: int = 1
+    parent_id: Optional[str] = None
+    is_latest: bool = True
+
+    class Config:
+        from_attributes = True
+
+
+class DocumentVersionResponse(BaseModel):
+    id: str
+    name: str
+    file_type: str
+    file_size: int
+    version: int
+    uploaded_by: str
+    uploaded_at: datetime
+    status: DocumentStatus
 
     class Config:
         from_attributes = True
