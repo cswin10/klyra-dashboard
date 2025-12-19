@@ -29,9 +29,9 @@ class Settings(BaseSettings):
     OLLAMA_EMBED_MODEL: str = "nomic-embed-text"
 
     # RAG settings
-    CHUNK_SIZE: int = 500
-    CHUNK_OVERLAP: int = 50
-    TOP_K_RESULTS: int = 5
+    CHUNK_SIZE: int = 1000  # Larger chunks keep related content together
+    CHUNK_OVERLAP: int = 100  # More overlap to avoid splitting context
+    TOP_K_RESULTS: int = 8  # Retrieve more chunks for comprehensive answers
 
     class Config:
         env_file = ".env"
