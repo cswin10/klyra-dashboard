@@ -229,9 +229,10 @@ WHAT YOU DON'T DO:
             history_parts.append(f"{role}: {msg['content']}")
         history_str = "\n\n".join(history_parts)
 
-    # Filter chunks by relevance score (only include if score > 0.65)
+    # Filter chunks by relevance score (only include if score > 0.75)
     # High threshold ensures documents are truly relevant to the query
-    MIN_RELEVANCE_SCORE = 0.65
+    # Lower scores often match generic text that isn't actually helpful
+    MIN_RELEVANCE_SCORE = 0.75
     relevant_chunks = [(doc, text, score) for doc, text, score in context_chunks if score > MIN_RELEVANCE_SCORE]
 
     if not relevant_chunks:
