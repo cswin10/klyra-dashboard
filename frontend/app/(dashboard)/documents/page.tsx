@@ -1,9 +1,9 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
-import { Trash2, Upload, FileText, Building2, Users, Mail, Shield, Package, FolderOpen } from "lucide-react";
+import React, { useEffect, useState, useCallback } from "react";
+import { Trash2, Upload, FileText, Building2, Users, Mail, Shield, Package, FolderOpen, Search, X } from "lucide-react";
 import { StatusBadge } from "@/components";
-import { api, Document, DocumentCategory, DOCUMENT_CATEGORIES } from "@/lib/api";
+import { api, Document, DocumentCategory, DOCUMENT_CATEGORIES, DocumentSearchResult } from "@/lib/api";
 import { formatBytes, formatDate, cn } from "@/lib/utils";
 
 const CATEGORY_ICONS: Record<DocumentCategory, React.ReactNode> = {
@@ -23,9 +23,46 @@ export default function DocumentsPage() {
   const [selectedCategory, setSelectedCategory] = useState<DocumentCategory>("general");
   const [dragActive, setDragActive] = useState(false);
 
+  // Search state
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState<DocumentSearchResult[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
+  const [showSearch, setShowSearch] = useState(false);
+
   useEffect(() => {
     fetchDocuments();
   }, []);
+
+  // Debounced search
+  const handleSearch = useCallback(async (query: string) => {
+    if (query.length < 2) {
+      setSearchResults([]);
+      return;
+    }
+
+    setIsSearching(true);
+    try {
+      const response = await api.searchDocuments(query);
+      setSearchResults(response.results);
+    } catch (err) {
+      console.error("Search failed:", err);
+      setSearchResults([]);
+    } finally {
+      setIsSearching(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (searchQuery) {
+        handleSearch(searchQuery);
+      } else {
+        setSearchResults([]);
+      }
+    }, 300);
+
+    return () => clearTimeout(timer);
+  }, [searchQuery, handleSearch]);
 
   const fetchDocuments = async () => {
     try {
@@ -103,12 +140,94 @@ export default function DocumentsPage() {
     documents: documents.filter((d) => d.category === cat.value),
   }));
 
+  const clearSearch = () => {
+    setSearchQuery("");
+    setSearchResults([]);
+    setShowSearch(false);
+  };
+
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-4">
         <h1 className="text-page-title text-text-primary">Knowledge Base</h1>
+        <div className="relative flex-1 max-w-md">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-text-muted" />
+          <input
+            type="text"
+            placeholder="Search within documents..."
+            value={searchQuery}
+            onChange={(e) => {
+              setSearchQuery(e.target.value);
+              setShowSearch(true);
+            }}
+            onFocus={() => setShowSearch(true)}
+            className="w-full pl-10 pr-10 py-2.5 bg-card-bg border border-card-border rounded-lg text-text-primary placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-accent/50"
+          />
+          {searchQuery && (
+            <button
+              onClick={clearSearch}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-primary"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          )}
+        </div>
       </div>
+
+      {/* Search Results */}
+      {showSearch && searchQuery && (
+        <div className="glass-card p-4">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="font-medium text-text-primary">
+              Search Results {searchResults.length > 0 && `(${searchResults.length})`}
+            </h3>
+            <button
+              onClick={clearSearch}
+              className="text-sm text-text-muted hover:text-text-primary"
+            >
+              Clear
+            </button>
+          </div>
+
+          {isSearching ? (
+            <div className="flex items-center justify-center py-8">
+              <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-accent"></div>
+            </div>
+          ) : searchResults.length === 0 ? (
+            <p className="text-text-muted text-sm py-4 text-center">
+              {searchQuery.length < 2 ? "Type at least 2 characters to search" : "No results found"}
+            </p>
+          ) : (
+            <div className="space-y-3 max-h-96 overflow-y-auto">
+              {searchResults.map((result, index) => (
+                <div
+                  key={index}
+                  className="p-3 bg-card-bg/50 rounded-lg border border-card-border"
+                >
+                  <div className="flex items-center gap-2 mb-2">
+                    <FileText className="h-4 w-4 text-accent" />
+                    <span className="font-medium text-text-primary text-sm">
+                      {result.document_name}
+                    </span>
+                    {result.category && (
+                      <span className="px-2 py-0.5 rounded-full bg-accent/10 text-accent text-xs">
+                        {DOCUMENT_CATEGORIES.find(c => c.value === result.category)?.label || result.category}
+                      </span>
+                    )}
+                    <span className="ml-auto text-xs text-text-muted">
+                      {Math.round(result.relevance_score * 100)}% match
+                    </span>
+                  </div>
+                  <p className="text-sm text-text-secondary line-clamp-3">
+                    {result.excerpt}
+                  </p>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Error Message */}
       {error && (

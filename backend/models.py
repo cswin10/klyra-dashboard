@@ -31,6 +31,22 @@ class MessageRole(str, enum.Enum):
     assistant = "assistant"
 
 
+class FeedbackType(str, enum.Enum):
+    positive = "positive"  # thumbs up
+    negative = "negative"  # thumbs down
+
+
+class AuditAction(str, enum.Enum):
+    user_created = "user_created"
+    user_deleted = "user_deleted"
+    user_role_changed = "user_role_changed"
+    document_uploaded = "document_uploaded"
+    document_deleted = "document_deleted"
+    settings_changed = "settings_changed"
+    login = "login"
+    logout = "logout"
+
+
 def generate_uuid():
     return str(uuid.uuid4())
 
@@ -109,3 +125,36 @@ class Log(Base):
 
     # Relationships
     user = relationship("User", back_populates="logs")
+
+
+class Feedback(Base):
+    """Stores user feedback (thumbs up/down) on AI responses."""
+    __tablename__ = "feedback"
+
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    message_id = Column(String(36), ForeignKey("messages.id", ondelete="CASCADE"), nullable=False)
+    user_id = Column(String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    feedback_type = Column(Enum(FeedbackType), nullable=False)
+    comment = Column(Text, nullable=True)  # Optional comment for negative feedback
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    # Relationships
+    message = relationship("Message")
+    user = relationship("User")
+
+
+class AuditLog(Base):
+    """Stores audit trail of admin actions."""
+    __tablename__ = "audit_logs"
+
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    user_id = Column(String(36), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    action = Column(Enum(AuditAction), nullable=False)
+    target_type = Column(String(50), nullable=True)  # e.g., "user", "document"
+    target_id = Column(String(36), nullable=True)
+    details = Column(JSON, nullable=True)  # Additional context
+    ip_address = Column(String(45), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    # Relationships
+    user = relationship("User")

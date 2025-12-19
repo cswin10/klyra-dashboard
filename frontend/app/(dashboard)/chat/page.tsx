@@ -140,11 +140,17 @@ export default function ChatPage() {
             )
           );
         },
-        (sources) => {
+        (sources, userMsgId, assistantMsgId) => {
           setMessages((prev) =>
-            prev.map((m) =>
-              m.id === assistantMessageId ? { ...m, sources, isStreaming: false } : m
-            )
+            prev.map((m) => {
+              if (m.id === assistantMessageId) {
+                return { ...m, id: assistantMsgId || m.id, sources, isStreaming: false };
+              }
+              if (m.id === userMessageId && userMsgId) {
+                return { ...m, id: userMsgId };
+              }
+              return m;
+            })
           );
           setIsSending(false);
         },
@@ -256,6 +262,7 @@ export default function ChatPage() {
                 messages.map((message) => (
                   <ChatMessage
                     key={message.id}
+                    messageId={message.id.startsWith("temp-") ? undefined : message.id}
                     role={message.role}
                     content={message.content}
                     sources={message.sources}

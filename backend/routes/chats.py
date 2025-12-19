@@ -144,8 +144,12 @@ async def send_message(
     # Build RAG prompt with conversation history
     prompt, sources = await query_with_rag(query_content, conversation_history)
 
+    # Capture user message ID for returning to frontend
+    user_message_id = user_message.id
+
     async def generate_stream():
         full_response = ""
+        assistant_message_id = None
 
         try:
             async for token in generate_text(prompt):
@@ -174,9 +178,10 @@ async def send_message(
                 )
                 stream_db.add(log)
                 stream_db.commit()
+                assistant_message_id = assistant_message.id
 
-            # Send completion signal with sources
-            yield f"data: {json.dumps({'done': True, 'sources': sources})}\n\n"
+            # Send completion signal with sources and message IDs for feedback
+            yield f"data: {json.dumps({'done': True, 'sources': sources, 'user_message_id': user_message_id, 'assistant_message_id': assistant_message_id})}\n\n"
 
         except Exception as e:
             yield f"data: {json.dumps({'error': str(e)})}\n\n"

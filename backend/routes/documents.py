@@ -8,7 +8,7 @@ from models import Document, DocumentStatus, DocumentCategory
 from schemas import DocumentResponse
 from auth import get_current_user, CurrentUser
 from config import UPLOADS_DIR
-from rag import process_document, delete_document_chunks
+from rag import process_document, delete_document_chunks, search_similar_chunks
 
 router = APIRouter(prefix="/api/documents", tags=["documents"])
 
@@ -172,3 +172,40 @@ async def delete_document(
     db.commit()
 
     return {"message": "Document deleted successfully"}
+
+
+@router.get("/search")
+async def search_documents(
+    q: str,
+    limit: int = 10,
+    current_user: CurrentUser = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Search within documents using semantic search."""
+    if not q or len(q.strip()) < 2:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Search query must be at least 2 characters"
+        )
+
+    # Search using RAG
+    results = await search_similar_chunks(q.strip(), top_k=limit)
+
+    # Format results
+    search_results = []
+    for doc_name, chunk_text, score in results:
+        # Find the document in database
+        document = db.query(Document).filter(Document.name == doc_name).first()
+        search_results.append({
+            "document_name": doc_name,
+            "document_id": document.id if document else None,
+            "category": document.category.value if document else None,
+            "excerpt": chunk_text[:500] + "..." if len(chunk_text) > 500 else chunk_text,
+            "relevance_score": round(score, 3)
+        })
+
+    return {
+        "query": q,
+        "results": search_results,
+        "total": len(search_results)
+    }

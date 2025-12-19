@@ -64,6 +64,20 @@ export interface Document {
   uploaded_at: string;
 }
 
+export interface DocumentSearchResult {
+  document_name: string;
+  document_id: string | null;
+  category: DocumentCategory | null;
+  excerpt: string;
+  relevance_score: number;
+}
+
+export interface DocumentSearchResponse {
+  query: string;
+  results: DocumentSearchResult[];
+  total: number;
+}
+
 export interface Log {
   id: string;
   user_id: string;
@@ -106,6 +120,53 @@ export interface SystemStats {
   storage_used: number;
   storage_total: number;
   uptime_seconds: number;
+}
+
+export type FeedbackType = "positive" | "negative";
+
+export interface Feedback {
+  id: string;
+  message_id: string;
+  user_id: string;
+  feedback_type: FeedbackType;
+  comment: string | null;
+  created_at: string;
+}
+
+export interface FeedbackStats {
+  total_positive: number;
+  total_negative: number;
+  recent_negative: Feedback[];
+}
+
+export type AuditAction =
+  | "user_created"
+  | "user_deleted"
+  | "user_role_changed"
+  | "document_uploaded"
+  | "document_deleted"
+  | "settings_changed"
+  | "login"
+  | "logout";
+
+export interface AuditLog {
+  id: string;
+  user_id: string | null;
+  user_name: string | null;
+  user_email: string | null;
+  action: AuditAction;
+  target_type: string | null;
+  target_id: string | null;
+  details: Record<string, unknown> | null;
+  ip_address: string | null;
+  created_at: string;
+}
+
+export interface AuditLogResponse {
+  logs: AuditLog[];
+  total: number;
+  limit: number;
+  offset: number;
 }
 
 // API Client
@@ -199,7 +260,7 @@ class ApiClient {
     chatId: string,
     content: string,
     onToken: (token: string) => void,
-    onComplete: (sources: string[]) => void,
+    onComplete: (sources: string[], userMessageId?: string, assistantMessageId?: string) => void,
     onError: (error: string) => void
   ): Promise<void> {
     const token = this.getToken();
@@ -240,7 +301,7 @@ class ApiClient {
               onToken(data.token);
             }
             if (data.done) {
-              onComplete(data.sources || []);
+              onComplete(data.sources || [], data.user_message_id, data.assistant_message_id);
             }
             if (data.error) {
               onError(data.error);
@@ -282,6 +343,11 @@ class ApiClient {
 
   async deleteDocument(documentId: string): Promise<void> {
     await this.request(`/api/documents/${documentId}`, { method: "DELETE" });
+  }
+
+  async searchDocuments(query: string, limit: number = 10): Promise<DocumentSearchResponse> {
+    const params = new URLSearchParams({ q: query, limit: limit.toString() });
+    return this.request(`/api/documents/search?${params}`);
   }
 
   // Users (admin)
@@ -334,6 +400,46 @@ class ApiClient {
   // Stats
   async getDashboardStats(): Promise<DashboardStats> {
     return this.request("/api/stats");
+  }
+
+  // Feedback
+  async submitFeedback(messageId: string, feedbackType: FeedbackType, comment?: string): Promise<Feedback> {
+    return this.request("/api/feedback", {
+      method: "POST",
+      body: JSON.stringify({
+        message_id: messageId,
+        feedback_type: feedbackType,
+        comment: comment || null,
+      }),
+    });
+  }
+
+  async getMessageFeedback(messageId: string): Promise<Feedback | null> {
+    try {
+      return await this.request(`/api/feedback/message/${messageId}`);
+    } catch {
+      return null;
+    }
+  }
+
+  async deleteFeedback(messageId: string): Promise<void> {
+    await this.request(`/api/feedback/message/${messageId}`, { method: "DELETE" });
+  }
+
+  async getFeedbackStats(): Promise<FeedbackStats> {
+    return this.request("/api/feedback/stats");
+  }
+
+  // Audit logs (admin)
+  async getAuditLogs(params: { user_id?: string; action?: AuditAction; limit?: number; offset?: number } = {}): Promise<AuditLogResponse> {
+    const searchParams = new URLSearchParams();
+    if (params.user_id) searchParams.set("user_id", params.user_id);
+    if (params.action) searchParams.set("action", params.action);
+    if (params.limit) searchParams.set("limit", params.limit.toString());
+    if (params.offset) searchParams.set("offset", params.offset.toString());
+
+    const query = searchParams.toString();
+    return this.request(`/api/audit${query ? `?${query}` : ""}`);
   }
 }
 
