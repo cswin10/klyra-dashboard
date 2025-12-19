@@ -1,9 +1,9 @@
 "use client";
 
 import React, { useEffect, useState, useCallback } from "react";
-import { Trash2, Upload, FileText, Building2, Users, Mail, Shield, Package, FolderOpen, Search, X } from "lucide-react";
+import { Trash2, Upload, FileText, Building2, Users, Mail, Shield, Package, FolderOpen, Search, X, History, RefreshCw } from "lucide-react";
 import { StatusBadge } from "@/components";
-import { api, Document, DocumentCategory, DOCUMENT_CATEGORIES, DocumentSearchResult } from "@/lib/api";
+import { api, Document, DocumentCategory, DOCUMENT_CATEGORIES, DocumentSearchResult, DocumentVersion } from "@/lib/api";
 import { formatBytes, formatDate, cn } from "@/lib/utils";
 
 const CATEGORY_ICONS: Record<DocumentCategory, React.ReactNode> = {
@@ -28,6 +28,12 @@ export default function DocumentsPage() {
   const [searchResults, setSearchResults] = useState<DocumentSearchResult[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
+
+  // Version history state
+  const [versionModalDoc, setVersionModalDoc] = useState<Document | null>(null);
+  const [versions, setVersions] = useState<DocumentVersion[]>([]);
+  const [isLoadingVersions, setIsLoadingVersions] = useState(false);
+  const [uploadVersionDoc, setUploadVersionDoc] = useState<Document | null>(null);
 
   useEffect(() => {
     fetchDocuments();
@@ -144,6 +150,62 @@ export default function DocumentsPage() {
     setSearchQuery("");
     setSearchResults([]);
     setShowSearch(false);
+  };
+
+  const handleViewVersions = async (doc: Document) => {
+    setVersionModalDoc(doc);
+    setIsLoadingVersions(true);
+    try {
+      const versionList = await api.getDocumentVersions(doc.id);
+      setVersions(versionList);
+    } catch (err) {
+      console.error("Failed to fetch versions:", err);
+      setVersions([]);
+    } finally {
+      setIsLoadingVersions(false);
+    }
+  };
+
+  const handleUploadNewVersion = async (files: FileList | null) => {
+    if (!files || files.length === 0 || !uploadVersionDoc) return;
+
+    setIsUploading(true);
+    setError(null);
+
+    try {
+      const newDoc = await api.uploadNewVersion(uploadVersionDoc.id, files[0]);
+      // Refresh documents list
+      await fetchDocuments();
+      setUploadVersionDoc(null);
+
+      // Poll for processing
+      const pollStatus = async () => {
+        const docs = await api.getDocuments();
+        setDocuments(docs);
+        const hasProcessing = docs.some((d) => d.status === "processing");
+        if (hasProcessing) {
+          setTimeout(pollStatus, 2000);
+        }
+      };
+      setTimeout(pollStatus, 2000);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to upload new version");
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  const handleRevertToVersion = async (versionId: string) => {
+    if (!versionModalDoc) return;
+    if (!confirm("Revert to this version? The current version will be archived.")) return;
+
+    try {
+      await api.revertToVersion(versionModalDoc.id, versionId);
+      await fetchDocuments();
+      setVersionModalDoc(null);
+    } catch (err) {
+      console.error("Failed to revert:", err);
+    }
   };
 
   return (
@@ -332,7 +394,14 @@ export default function DocumentsPage() {
                     >
                       <FileText className="h-5 w-5 text-text-muted flex-shrink-0" />
                       <div className="flex-1 min-w-0">
-                        <p className="font-medium text-text-primary truncate">{doc.name}</p>
+                        <div className="flex items-center gap-2">
+                          <p className="font-medium text-text-primary truncate">{doc.name}</p>
+                          {doc.version > 1 && (
+                            <span className="px-1.5 py-0.5 rounded bg-accent/10 text-accent text-xs font-medium">
+                              v{doc.version}
+                            </span>
+                          )}
+                        </div>
                         <p className="text-xs text-text-muted">
                           {doc.file_type.toUpperCase()} • {formatBytes(doc.file_size)} • {formatDate(doc.uploaded_at)}
                           {doc.chunk_count > 0 && ` • ${doc.chunk_count} chunks`}
@@ -340,8 +409,23 @@ export default function DocumentsPage() {
                       </div>
                       <StatusBadge status={doc.status} />
                       <button
+                        onClick={() => setUploadVersionDoc(doc)}
+                        className="p-2 rounded-lg text-text-secondary hover:text-accent hover:bg-accent/10 transition-colors"
+                        title="Upload new version"
+                      >
+                        <RefreshCw className="h-4 w-4" />
+                      </button>
+                      <button
+                        onClick={() => handleViewVersions(doc)}
+                        className="p-2 rounded-lg text-text-secondary hover:text-accent hover:bg-accent/10 transition-colors"
+                        title="View version history"
+                      >
+                        <History className="h-4 w-4" />
+                      </button>
+                      <button
                         onClick={() => handleDelete(doc.id)}
                         className="p-2 rounded-lg text-text-secondary hover:text-status-red hover:bg-status-red/10 transition-colors"
+                        title="Delete document"
                       >
                         <Trash2 className="h-4 w-4" />
                       </button>
@@ -350,6 +434,132 @@ export default function DocumentsPage() {
                 </div>
               </div>
             ))}
+        </div>
+      )}
+
+      {/* Version History Modal */}
+      {versionModalDoc && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-page-bg rounded-card border border-card-border shadow-xl w-full max-w-lg mx-4">
+            <div className="flex items-center justify-between p-4 border-b border-card-border">
+              <div>
+                <h3 className="font-semibold text-text-primary">Version History</h3>
+                <p className="text-sm text-text-muted truncate">{versionModalDoc.name}</p>
+              </div>
+              <button
+                onClick={() => setVersionModalDoc(null)}
+                className="p-2 rounded-lg hover:bg-card-bg transition-colors"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="p-4 max-h-96 overflow-y-auto">
+              {isLoadingVersions ? (
+                <div className="flex items-center justify-center py-8">
+                  <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-accent"></div>
+                </div>
+              ) : versions.length === 0 ? (
+                <p className="text-center text-text-muted py-8">No version history available</p>
+              ) : (
+                <div className="space-y-2">
+                  {versions.map((version) => (
+                    <div
+                      key={version.id}
+                      className={cn(
+                        "flex items-center gap-3 p-3 rounded-lg border",
+                        version.id === versionModalDoc.id
+                          ? "border-accent bg-accent/5"
+                          : "border-card-border bg-card-bg/50"
+                      )}
+                    >
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2">
+                          <span className="font-medium text-text-primary">
+                            Version {version.version}
+                          </span>
+                          {version.id === versionModalDoc.id && (
+                            <span className="px-1.5 py-0.5 rounded bg-accent/20 text-accent text-xs">
+                              Current
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-xs text-text-muted">
+                          {formatDate(version.uploaded_at)} • {formatBytes(version.file_size)}
+                        </p>
+                      </div>
+                      {version.id !== versionModalDoc.id && (
+                        <button
+                          onClick={() => handleRevertToVersion(version.id)}
+                          className="px-3 py-1.5 text-sm bg-accent/10 text-accent rounded-lg hover:bg-accent/20 transition-colors"
+                        >
+                          Revert
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Upload New Version Modal */}
+      {uploadVersionDoc && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-page-bg rounded-card border border-card-border shadow-xl w-full max-w-md mx-4">
+            <div className="flex items-center justify-between p-4 border-b border-card-border">
+              <div>
+                <h3 className="font-semibold text-text-primary">Upload New Version</h3>
+                <p className="text-sm text-text-muted truncate">{uploadVersionDoc.name}</p>
+              </div>
+              <button
+                onClick={() => setUploadVersionDoc(null)}
+                className="p-2 rounded-lg hover:bg-card-bg transition-colors"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="p-4">
+              <p className="text-sm text-text-secondary mb-4">
+                Current version: <span className="text-accent font-medium">v{uploadVersionDoc.version}</span>
+              </p>
+
+              <div
+                className={cn(
+                  "relative border-2 border-dashed rounded-lg p-6 text-center transition-colors",
+                  "border-card-border hover:border-accent/50",
+                  isUploading && "opacity-50 pointer-events-none"
+                )}
+              >
+                <input
+                  type="file"
+                  accept=".pdf,.docx,.doc,.txt,.md"
+                  onChange={(e) => handleUploadNewVersion(e.target.files)}
+                  className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                  disabled={isUploading}
+                />
+                <Upload className="h-6 w-6 mx-auto mb-2 text-text-muted" />
+                <p className="text-sm text-text-primary">
+                  {isUploading ? "Uploading..." : "Click to select file"}
+                </p>
+                <p className="text-xs text-text-muted mt-1">
+                  This will create version {uploadVersionDoc.version + 1}
+                </p>
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-3 p-4 border-t border-card-border">
+              <button
+                onClick={() => setUploadVersionDoc(null)}
+                className="px-4 py-2 text-sm text-text-secondary hover:text-text-primary transition-colors"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

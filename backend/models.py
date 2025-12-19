@@ -109,9 +109,14 @@ class Document(Base):
     uploaded_by = Column(String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     uploaded_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     file_path = Column(String(500), nullable=True)
+    # Versioning fields
+    version = Column(Integer, default=1, nullable=False)
+    parent_id = Column(String(36), ForeignKey("documents.id", ondelete="SET NULL"), nullable=True)
+    is_latest = Column(Integer, default=1, nullable=False)  # 1 = current version, 0 = archived
 
     # Relationships
     uploaded_by_user = relationship("User", back_populates="documents")
+    parent = relationship("Document", remote_side=[id], backref="versions")
 
 
 class Log(Base):

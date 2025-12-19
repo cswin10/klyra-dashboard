@@ -74,6 +74,20 @@ export interface Document {
   chunk_count: number;
   uploaded_by: string;
   uploaded_at: string;
+  version: number;
+  parent_id: string | null;
+  is_latest: boolean;
+}
+
+export interface DocumentVersion {
+  id: string;
+  name: string;
+  file_type: string;
+  file_size: number;
+  version: number;
+  uploaded_by: string;
+  uploaded_at: string;
+  status: "processing" | "ready" | "error";
 }
 
 export interface DocumentSearchResult {
@@ -378,6 +392,35 @@ class ApiClient {
     return this.request(`/api/documents/search?${params}`);
   }
 
+  async getDocumentVersions(documentId: string): Promise<DocumentVersion[]> {
+    return this.request(`/api/documents/${documentId}/versions`);
+  }
+
+  async uploadNewVersion(documentId: string, file: File): Promise<Document> {
+    const token = this.getToken();
+    const formData = new FormData();
+    formData.append("file", file);
+
+    const response = await fetch(`${API_BASE_URL}/api/documents/${documentId}/versions`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+      body: formData,
+    });
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ detail: "Failed to upload new version" }));
+      throw new Error(error.detail);
+    }
+
+    return response.json();
+  }
+
+  async revertToVersion(documentId: string, versionId: string): Promise<void> {
+    await this.request(`/api/documents/${documentId}/revert/${versionId}`, { method: "POST" });
+  }
+
   // Users (admin)
   async getUsers(): Promise<User[]> {
     return this.request("/api/users");
@@ -440,7 +483,11 @@ class ApiClient {
   }
 
   async getSystemHealth(): Promise<{ status: string; ollama: string }> {
-    return this.request("/api/system/health");
+    try {
+      return await this.request("/api/system/health");
+    } catch {
+      return { status: "offline", ollama: "not running" };
+    }
   }
 
   // Logs (admin)

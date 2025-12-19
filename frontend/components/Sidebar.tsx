@@ -1,6 +1,6 @@
 "use client";
 
-import React from "react";
+import React, { useEffect, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
@@ -12,9 +12,12 @@ import {
   Server,
   List,
   Settings,
+  Wifi,
+  WifiOff,
 } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { cn, getInitials } from "@/lib/utils";
+import { api } from "@/lib/api";
 
 const navigation = [
   { name: "Overview", href: "/overview", icon: LayoutGrid },
@@ -26,13 +29,32 @@ const navigation = [
   { name: "Settings", href: "/settings", icon: Settings },
 ];
 
+type OllamaStatus = "checking" | "running" | "not running" | "offline";
+
 export function Sidebar() {
   const pathname = usePathname();
   const { user, isAdmin } = useAuth();
+  const [ollamaStatus, setOllamaStatus] = useState<OllamaStatus>("checking");
 
   const filteredNavigation = navigation.filter(
     (item) => !item.adminOnly || isAdmin
   );
+
+  // Poll Ollama status every 30 seconds
+  useEffect(() => {
+    const checkStatus = async () => {
+      try {
+        const health = await api.getSystemHealth();
+        setOllamaStatus(health.ollama as OllamaStatus);
+      } catch {
+        setOllamaStatus("offline");
+      }
+    };
+
+    checkStatus();
+    const interval = setInterval(checkStatus, 30000);
+    return () => clearInterval(interval);
+  }, []);
 
   return (
     <aside className="fixed left-0 top-0 h-full w-sidebar bg-black/80 backdrop-blur-xl border-r border-white/5 flex flex-col">
@@ -82,6 +104,37 @@ export function Sidebar() {
           );
         })}
       </nav>
+
+      {/* AI Status Indicator */}
+      <div className="px-4 py-3 border-t border-white/5">
+        <div className={cn(
+          "flex items-center gap-3 px-4 py-2.5 rounded-xl",
+          ollamaStatus === "running" ? "bg-status-green/10" : "bg-status-red/10"
+        )}>
+          {ollamaStatus === "running" ? (
+            <Wifi className="h-4 w-4 text-status-green" />
+          ) : (
+            <WifiOff className="h-4 w-4 text-status-red" />
+          )}
+          <div className="flex-1 min-w-0">
+            <p className={cn(
+              "text-xs font-medium",
+              ollamaStatus === "running" ? "text-status-green" : "text-status-red"
+            )}>
+              {ollamaStatus === "checking" && "Checking AI..."}
+              {ollamaStatus === "running" && "AI Online"}
+              {ollamaStatus === "not running" && "AI Offline"}
+              {ollamaStatus === "offline" && "Server Offline"}
+            </p>
+          </div>
+          <div className={cn(
+            "w-2 h-2 rounded-full",
+            ollamaStatus === "running"
+              ? "bg-status-green animate-pulse shadow-[0_0_8px_rgba(0,255,136,0.5)]"
+              : "bg-status-red shadow-[0_0_8px_rgba(255,68,68,0.5)]"
+          )} />
+        </div>
+      </div>
 
       {/* User Profile */}
       {user && (
