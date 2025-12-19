@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Plus, Pencil, Trash2 } from "lucide-react";
+import { Plus, Pencil, Trash2, Upload, X, CheckCircle, AlertCircle, SkipForward } from "lucide-react";
 import { DataTable, StatusBadge, Modal } from "@/components";
 import { api, User } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
@@ -31,6 +31,18 @@ export default function UsersPage() {
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Bulk import state
+  const [isImportModalOpen, setIsImportModalOpen] = useState(false);
+  const [isImporting, setIsImporting] = useState(false);
+  const [importResults, setImportResults] = useState<{
+    summary: { total_processed: number; created: number; skipped: number; errors: number };
+    details: {
+      created: { row: number; email: string; name: string; role: string }[];
+      skipped: { row: number; email: string; reason: string }[];
+      errors: { row: number; email: string; error: string }[];
+    };
+  } | null>(null);
 
   useEffect(() => {
     if (!authLoading && !isAdmin) {
@@ -119,6 +131,35 @@ export default function UsersPage() {
     }
   };
 
+  const handleBulkImport = async (file: File) => {
+    setIsImporting(true);
+    setImportResults(null);
+
+    try {
+      const result = await api.bulkImportUsers(file);
+      setImportResults({
+        summary: result.summary,
+        details: result.details,
+      });
+
+      // Refresh users list
+      if (result.summary.created > 0) {
+        fetchUsers();
+      }
+    } catch (err) {
+      setImportResults({
+        summary: { total_processed: 0, created: 0, skipped: 0, errors: 1 },
+        details: {
+          created: [],
+          skipped: [],
+          errors: [{ row: 0, email: "N/A", error: err instanceof Error ? err.message : "Import failed" }],
+        },
+      });
+    } finally {
+      setIsImporting(false);
+    }
+  };
+
   if (authLoading || (!isAdmin && !authLoading)) {
     return (
       <div className="flex items-center justify-center h-[calc(100vh-64px)]">
@@ -185,13 +226,22 @@ export default function UsersPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <h1 className="text-page-title text-text-primary">Users</h1>
-        <button
-          onClick={() => handleOpenModal()}
-          className="flex items-center gap-2 px-4 py-2 bg-accent text-page-bg rounded-lg font-medium hover:bg-accent-hover transition-colors"
-        >
-          <Plus className="h-4 w-4" />
-          Add User
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => setIsImportModalOpen(true)}
+            className="flex items-center gap-2 px-4 py-2 border border-card-border text-text-secondary rounded-lg font-medium hover:bg-card-bg transition-colors"
+          >
+            <Upload className="h-4 w-4" />
+            Import CSV
+          </button>
+          <button
+            onClick={() => handleOpenModal()}
+            className="flex items-center gap-2 px-4 py-2 bg-accent text-page-bg rounded-lg font-medium hover:bg-accent-hover transition-colors"
+          >
+            <Plus className="h-4 w-4" />
+            Add User
+          </button>
+        </div>
       </div>
 
       {/* Users Table */}
@@ -287,6 +337,116 @@ export default function UsersPage() {
             </button>
           </div>
         </form>
+      </Modal>
+
+      {/* Bulk Import Modal */}
+      <Modal
+        isOpen={isImportModalOpen}
+        onClose={() => {
+          setIsImportModalOpen(false);
+          setImportResults(null);
+        }}
+        title="Import Users from CSV"
+      >
+        <div className="space-y-4">
+          {!importResults ? (
+            <>
+              <p className="text-text-secondary text-sm">
+                Upload a CSV file with the following columns: <strong>name, email, password, role</strong>
+                <br />
+                <span className="text-text-muted">The role column is optional (defaults to &quot;user&quot;).</span>
+              </p>
+
+              <div className="p-4 bg-card-bg rounded-lg border border-card-border">
+                <p className="text-xs text-text-muted mb-2">Example CSV format:</p>
+                <code className="text-xs text-text-secondary">
+                  name,email,password,role<br />
+                  John Doe,john@example.com,password123,user<br />
+                  Jane Admin,jane@example.com,securepass,admin
+                </code>
+              </div>
+
+              <div className="relative">
+                <input
+                  type="file"
+                  accept=".csv"
+                  onChange={(e) => {
+                    if (e.target.files?.[0]) {
+                      handleBulkImport(e.target.files[0]);
+                    }
+                  }}
+                  disabled={isImporting}
+                  className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                />
+                <div className="flex items-center justify-center gap-2 p-6 border-2 border-dashed border-card-border rounded-lg text-text-secondary hover:border-accent transition-colors">
+                  {isImporting ? (
+                    <>
+                      <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-accent"></div>
+                      <span>Importing...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Upload className="h-5 w-5" />
+                      <span>Click or drag CSV file here</span>
+                    </>
+                  )}
+                </div>
+              </div>
+            </>
+          ) : (
+            <>
+              {/* Import Results */}
+              <div className="grid grid-cols-3 gap-4 text-center">
+                <div className="p-3 bg-green-500/10 rounded-lg">
+                  <p className="text-2xl font-bold text-green-500">{importResults.summary.created}</p>
+                  <p className="text-xs text-text-muted">Created</p>
+                </div>
+                <div className="p-3 bg-yellow-500/10 rounded-lg">
+                  <p className="text-2xl font-bold text-yellow-500">{importResults.summary.skipped}</p>
+                  <p className="text-xs text-text-muted">Skipped</p>
+                </div>
+                <div className="p-3 bg-red-500/10 rounded-lg">
+                  <p className="text-2xl font-bold text-red-500">{importResults.summary.errors}</p>
+                  <p className="text-xs text-text-muted">Errors</p>
+                </div>
+              </div>
+
+              <div className="max-h-64 overflow-y-auto space-y-2">
+                {importResults.details.created.map((item, i) => (
+                  <div key={i} className="flex items-center gap-2 p-2 bg-green-500/10 rounded text-sm">
+                    <CheckCircle className="h-4 w-4 text-green-500" />
+                    <span className="text-text-primary">{item.name}</span>
+                    <span className="text-text-muted">({item.email})</span>
+                  </div>
+                ))}
+                {importResults.details.skipped.map((item, i) => (
+                  <div key={i} className="flex items-center gap-2 p-2 bg-yellow-500/10 rounded text-sm">
+                    <SkipForward className="h-4 w-4 text-yellow-500" />
+                    <span className="text-text-primary">{item.email}</span>
+                    <span className="text-text-muted">- {item.reason}</span>
+                  </div>
+                ))}
+                {importResults.details.errors.map((item, i) => (
+                  <div key={i} className="flex items-center gap-2 p-2 bg-red-500/10 rounded text-sm">
+                    <AlertCircle className="h-4 w-4 text-red-500" />
+                    <span className="text-text-primary">{item.email}</span>
+                    <span className="text-text-muted">- {item.error}</span>
+                  </div>
+                ))}
+              </div>
+
+              <button
+                onClick={() => {
+                  setIsImportModalOpen(false);
+                  setImportResults(null);
+                }}
+                className="w-full px-4 py-2.5 bg-accent text-page-bg rounded-lg font-medium hover:bg-accent-hover transition-colors"
+              >
+                Done
+              </button>
+            </>
+          )}
+        </div>
       </Modal>
     </div>
   );

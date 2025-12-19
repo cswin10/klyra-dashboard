@@ -19,6 +19,18 @@ export interface Chat {
   messages: Message[];
 }
 
+export interface ChatExport {
+  id: string;
+  title: string;
+  created_at: string;
+  messages: {
+    role: "user" | "assistant";
+    content: string;
+    sources: string[] | null;
+    created_at: string;
+  }[];
+}
+
 export interface ChatListItem {
   id: string;
   title: string | null;
@@ -35,15 +47,47 @@ export interface Message {
   created_at: string;
 }
 
+export type DocumentCategory =
+  | "company_info"
+  | "team"
+  | "templates"
+  | "policies"
+  | "products"
+  | "general";
+
+export const DOCUMENT_CATEGORIES: { value: DocumentCategory; label: string; description: string }[] = [
+  { value: "company_info", label: "Company Info", description: "Company ethos, values, mission" },
+  { value: "team", label: "Team", description: "Employees, roles, org structure" },
+  { value: "templates", label: "Templates", description: "Email templates, tone guides" },
+  { value: "policies", label: "Policies", description: "HR policies, procedures" },
+  { value: "products", label: "Products", description: "Product info, documentation" },
+  { value: "general", label: "General", description: "Other documents" },
+];
+
 export interface Document {
   id: string;
   name: string;
   file_type: string;
   file_size: number;
+  category: DocumentCategory;
   status: "processing" | "ready" | "error";
   chunk_count: number;
   uploaded_by: string;
   uploaded_at: string;
+}
+
+export interface DocumentSearchResult {
+  document_name: string;
+  document_id: string | null;
+  category: DocumentCategory | null;
+  excerpt: string;
+  relevance_score: number;
+}
+
+export interface DocumentSearchResponse {
+  query: string;
+  results: DocumentSearchResult[];
+  total: number;
 }
 
 export interface Log {
@@ -88,6 +132,65 @@ export interface SystemStats {
   storage_used: number;
   storage_total: number;
   uptime_seconds: number;
+}
+
+export type FeedbackType = "positive" | "negative";
+
+export interface Feedback {
+  id: string;
+  message_id: string;
+  user_id: string;
+  feedback_type: FeedbackType;
+  comment: string | null;
+  created_at: string;
+}
+
+export interface FeedbackStats {
+  total_positive: number;
+  total_negative: number;
+  recent_negative: Feedback[];
+}
+
+export type AuditAction =
+  | "user_created"
+  | "user_deleted"
+  | "user_role_changed"
+  | "document_uploaded"
+  | "document_deleted"
+  | "settings_changed"
+  | "login"
+  | "logout";
+
+export interface AuditLog {
+  id: string;
+  user_id: string | null;
+  user_name: string | null;
+  user_email: string | null;
+  action: AuditAction;
+  target_type: string | null;
+  target_id: string | null;
+  details: Record<string, unknown> | null;
+  ip_address: string | null;
+  created_at: string;
+}
+
+export interface AuditLogResponse {
+  logs: AuditLog[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+export interface PromptTemplate {
+  id: string;
+  title: string;
+  description: string | null;
+  prompt: string;
+  category: string | null;
+  icon: string | null;
+  is_system: boolean;
+  created_by: string | null;
+  created_at: string;
 }
 
 // API Client
@@ -177,11 +280,15 @@ class ApiClient {
     await this.request(`/api/chats/${chatId}`, { method: "DELETE" });
   }
 
+  async exportChat(chatId: string): Promise<ChatExport> {
+    return this.request(`/api/chats/${chatId}/export`);
+  }
+
   async sendMessage(
     chatId: string,
     content: string,
     onToken: (token: string) => void,
-    onComplete: (sources: string[]) => void,
+    onComplete: (sources: string[], userMessageId?: string, assistantMessageId?: string) => void,
     onError: (error: string) => void
   ): Promise<void> {
     const token = this.getToken();
@@ -222,7 +329,7 @@ class ApiClient {
               onToken(data.token);
             }
             if (data.done) {
-              onComplete(data.sources || []);
+              onComplete(data.sources || [], data.user_message_id, data.assistant_message_id);
             }
             if (data.error) {
               onError(data.error);
@@ -240,10 +347,11 @@ class ApiClient {
     return this.request("/api/documents");
   }
 
-  async uploadDocument(file: File): Promise<Document> {
+  async uploadDocument(file: File, category: DocumentCategory = "general"): Promise<Document> {
     const token = this.getToken();
     const formData = new FormData();
     formData.append("file", file);
+    formData.append("category", category);
 
     const response = await fetch(`${API_BASE_URL}/api/documents`, {
       method: "POST",
@@ -263,6 +371,11 @@ class ApiClient {
 
   async deleteDocument(documentId: string): Promise<void> {
     await this.request(`/api/documents/${documentId}`, { method: "DELETE" });
+  }
+
+  async searchDocuments(query: string, limit: number = 10): Promise<DocumentSearchResponse> {
+    const params = new URLSearchParams({ q: query, limit: limit.toString() });
+    return this.request(`/api/documents/search?${params}`);
   }
 
   // Users (admin)
@@ -286,6 +399,35 @@ class ApiClient {
 
   async deleteUser(userId: string): Promise<void> {
     await this.request(`/api/users/${userId}`, { method: "DELETE" });
+  }
+
+  async bulkImportUsers(file: File): Promise<{
+    success: boolean;
+    summary: { total_processed: number; created: number; skipped: number; errors: number };
+    details: {
+      created: { row: number; email: string; name: string; role: string }[];
+      skipped: { row: number; email: string; reason: string }[];
+      errors: { row: number; email: string; error: string }[];
+    };
+  }> {
+    const token = this.getToken();
+    const formData = new FormData();
+    formData.append("file", file);
+
+    const response = await fetch(`${API_BASE_URL}/api/users/bulk-import`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+      body: formData,
+    });
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ detail: "Failed to import users" }));
+      throw new Error(error.detail);
+    }
+
+    return response.json();
   }
 
   // System (admin)
@@ -315,6 +457,62 @@ class ApiClient {
   // Stats
   async getDashboardStats(): Promise<DashboardStats> {
     return this.request("/api/stats");
+  }
+
+  // Feedback
+  async submitFeedback(messageId: string, feedbackType: FeedbackType, comment?: string): Promise<Feedback> {
+    return this.request("/api/feedback", {
+      method: "POST",
+      body: JSON.stringify({
+        message_id: messageId,
+        feedback_type: feedbackType,
+        comment: comment || null,
+      }),
+    });
+  }
+
+  async getMessageFeedback(messageId: string): Promise<Feedback | null> {
+    try {
+      return await this.request(`/api/feedback/message/${messageId}`);
+    } catch {
+      return null;
+    }
+  }
+
+  async deleteFeedback(messageId: string): Promise<void> {
+    await this.request(`/api/feedback/message/${messageId}`, { method: "DELETE" });
+  }
+
+  async getFeedbackStats(): Promise<FeedbackStats> {
+    return this.request("/api/feedback/stats");
+  }
+
+  // Audit logs (admin)
+  async getAuditLogs(params: { user_id?: string; action?: AuditAction; limit?: number; offset?: number } = {}): Promise<AuditLogResponse> {
+    const searchParams = new URLSearchParams();
+    if (params.user_id) searchParams.set("user_id", params.user_id);
+    if (params.action) searchParams.set("action", params.action);
+    if (params.limit) searchParams.set("limit", params.limit.toString());
+    if (params.offset) searchParams.set("offset", params.offset.toString());
+
+    const query = searchParams.toString();
+    return this.request(`/api/audit${query ? `?${query}` : ""}`);
+  }
+
+  // Prompt templates
+  async getTemplates(): Promise<PromptTemplate[]> {
+    return this.request("/api/templates");
+  }
+
+  async createTemplate(data: { title: string; description?: string; prompt: string; category?: string; icon?: string }): Promise<PromptTemplate> {
+    return this.request("/api/templates", {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  }
+
+  async deleteTemplate(templateId: string): Promise<void> {
+    await this.request(`/api/templates/${templateId}`, { method: "DELETE" });
   }
 }
 

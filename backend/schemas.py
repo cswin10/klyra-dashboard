@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Optional, List
 from pydantic import BaseModel, EmailStr
-from models import UserRole, DocumentStatus, MessageRole
+from models import UserRole, DocumentStatus, DocumentCategory, MessageRole, FeedbackType, AuditAction
 
 
 # ============ Auth Schemas ============
@@ -89,11 +89,16 @@ class ChatListResponse(BaseModel):
 
 
 # ============ Document Schemas ============
+class DocumentUpload(BaseModel):
+    category: DocumentCategory = DocumentCategory.general
+
+
 class DocumentResponse(BaseModel):
     id: str
     name: str
     file_type: str
     file_size: int
+    category: DocumentCategory
     status: DocumentStatus
     chunk_count: int
     uploaded_by: str
@@ -164,5 +169,55 @@ class ProfileUpdateRequest(BaseModel):
     email: Optional[EmailStr] = None
 
 
+# ============ Feedback Schemas ============
+class FeedbackCreate(BaseModel):
+    message_id: str
+    feedback_type: FeedbackType
+    comment: Optional[str] = None
+
+
+class FeedbackResponse(BaseModel):
+    id: str
+    message_id: str
+    user_id: str
+    feedback_type: FeedbackType
+    comment: Optional[str] = None
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class FeedbackStats(BaseModel):
+    total_positive: int
+    total_negative: int
+    recent_negative: List["FeedbackResponse"]
+
+
+# ============ Audit Log Schemas ============
+class AuditLogResponse(BaseModel):
+    id: str
+    user_id: Optional[str]
+    user_name: Optional[str] = None
+    user_email: Optional[str] = None
+    action: AuditAction
+    target_type: Optional[str] = None
+    target_id: Optional[str] = None
+    details: Optional[dict] = None
+    ip_address: Optional[str] = None
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class AuditLogListResponse(BaseModel):
+    logs: List[AuditLogResponse]
+    total: int
+    limit: int
+    offset: int
+
+
 # Update forward refs
 TokenResponse.model_rebuild()
+FeedbackStats.model_rebuild()

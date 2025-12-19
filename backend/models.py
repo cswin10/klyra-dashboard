@@ -17,9 +17,34 @@ class DocumentStatus(str, enum.Enum):
     error = "error"
 
 
+class DocumentCategory(str, enum.Enum):
+    company_info = "company_info"       # Company ethos, values, mission
+    team = "team"                       # Employees, roles, org structure
+    templates = "templates"             # Email templates, formats, tone guides
+    policies = "policies"               # HR policies, procedures, guidelines
+    products = "products"               # Product info, specs, documentation
+    general = "general"                 # General/uncategorized documents
+
+
 class MessageRole(str, enum.Enum):
     user = "user"
     assistant = "assistant"
+
+
+class FeedbackType(str, enum.Enum):
+    positive = "positive"  # thumbs up
+    negative = "negative"  # thumbs down
+
+
+class AuditAction(str, enum.Enum):
+    user_created = "user_created"
+    user_deleted = "user_deleted"
+    user_role_changed = "user_role_changed"
+    document_uploaded = "document_uploaded"
+    document_deleted = "document_deleted"
+    settings_changed = "settings_changed"
+    login = "login"
+    logout = "logout"
 
 
 def generate_uuid():
@@ -78,6 +103,7 @@ class Document(Base):
     name = Column(String(255), nullable=False)
     file_type = Column(String(50), nullable=False)
     file_size = Column(Integer, nullable=False)  # bytes
+    category = Column(Enum(DocumentCategory), default=DocumentCategory.general, nullable=False)
     status = Column(Enum(DocumentStatus), default=DocumentStatus.processing, nullable=False)
     chunk_count = Column(Integer, default=0, nullable=False)
     uploaded_by = Column(String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
@@ -99,3 +125,54 @@ class Log(Base):
 
     # Relationships
     user = relationship("User", back_populates="logs")
+
+
+class Feedback(Base):
+    """Stores user feedback (thumbs up/down) on AI responses."""
+    __tablename__ = "feedback"
+
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    message_id = Column(String(36), ForeignKey("messages.id", ondelete="CASCADE"), nullable=False)
+    user_id = Column(String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    feedback_type = Column(Enum(FeedbackType), nullable=False)
+    comment = Column(Text, nullable=True)  # Optional comment for negative feedback
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    # Relationships
+    message = relationship("Message")
+    user = relationship("User")
+
+
+class AuditLog(Base):
+    """Stores audit trail of admin actions."""
+    __tablename__ = "audit_logs"
+
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    user_id = Column(String(36), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    action = Column(Enum(AuditAction), nullable=False)
+    target_type = Column(String(50), nullable=True)  # e.g., "user", "document"
+    target_id = Column(String(36), nullable=True)
+    details = Column(JSON, nullable=True)  # Additional context
+    ip_address = Column(String(45), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    # Relationships
+    user = relationship("User")
+
+
+class PromptTemplate(Base):
+    """Pre-defined prompt templates for common tasks."""
+    __tablename__ = "prompt_templates"
+
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    title = Column(String(255), nullable=False)
+    description = Column(Text, nullable=True)
+    prompt = Column(Text, nullable=False)
+    category = Column(String(100), nullable=True)  # e.g., "summarize", "email", "analyze"
+    icon = Column(String(50), nullable=True)  # Icon name for frontend
+    is_system = Column(Integer, default=0)  # 1 = system template (not deletable)
+    created_by = Column(String(36), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    # Relationships
+    creator = relationship("User")

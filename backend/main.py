@@ -10,6 +10,9 @@ from routes import (
     system_router,
     logs_router,
     stats_router,
+    feedback_router,
+    audit_router,
+    templates_router,
 )
 
 
@@ -53,6 +56,9 @@ app.include_router(users_router)
 app.include_router(system_router)
 app.include_router(logs_router)
 app.include_router(stats_router)
+app.include_router(feedback_router)
+app.include_router(audit_router)
+app.include_router(templates_router)
 
 
 @app.get("/")
