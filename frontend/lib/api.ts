@@ -483,7 +483,11 @@ class ApiClient {
   }
 
   async getSystemHealth(): Promise<{ status: string; ollama: string }> {
-    return this.request("/api/system/health");
+    try {
+      return await this.request("/api/system/health");
+    } catch {
+      return { status: "offline", ollama: "not running" };
+    }
   }
 
   // Logs (admin)
