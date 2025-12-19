@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Optional, List
 from pydantic import BaseModel, EmailStr
-from models import UserRole, DocumentStatus, MessageRole
+from models import UserRole, DocumentStatus, DocumentCategory, MessageRole
 
 
 # ============ Auth Schemas ============
@@ -89,11 +89,16 @@ class ChatListResponse(BaseModel):
 
 
 # ============ Document Schemas ============
+class DocumentUpload(BaseModel):
+    category: DocumentCategory = DocumentCategory.general
+
+
 class DocumentResponse(BaseModel):
     id: str
     name: str
     file_type: str
     file_size: int
+    category: DocumentCategory
     status: DocumentStatus
     chunk_count: int
     uploaded_by: str

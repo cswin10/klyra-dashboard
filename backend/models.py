@@ -17,6 +17,15 @@ class DocumentStatus(str, enum.Enum):
     error = "error"
 
 
+class DocumentCategory(str, enum.Enum):
+    company_info = "company_info"       # Company ethos, values, mission
+    team = "team"                       # Employees, roles, org structure
+    templates = "templates"             # Email templates, formats, tone guides
+    policies = "policies"               # HR policies, procedures, guidelines
+    products = "products"               # Product info, specs, documentation
+    general = "general"                 # General/uncategorized documents
+
+
 class MessageRole(str, enum.Enum):
     user = "user"
     assistant = "assistant"
@@ -78,6 +87,7 @@ class Document(Base):
     name = Column(String(255), nullable=False)
     file_type = Column(String(50), nullable=False)
     file_size = Column(Integer, nullable=False)  # bytes
+    category = Column(Enum(DocumentCategory), default=DocumentCategory.general, nullable=False)
     status = Column(Enum(DocumentStatus), default=DocumentStatus.processing, nullable=False)
     chunk_count = Column(Integer, default=0, nullable=False)
     uploaded_by = Column(String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)

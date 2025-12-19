@@ -35,11 +35,29 @@ export interface Message {
   created_at: string;
 }
 
+export type DocumentCategory =
+  | "company_info"
+  | "team"
+  | "templates"
+  | "policies"
+  | "products"
+  | "general";
+
+export const DOCUMENT_CATEGORIES: { value: DocumentCategory; label: string; description: string }[] = [
+  { value: "company_info", label: "Company Info", description: "Company ethos, values, mission" },
+  { value: "team", label: "Team", description: "Employees, roles, org structure" },
+  { value: "templates", label: "Templates", description: "Email templates, tone guides" },
+  { value: "policies", label: "Policies", description: "HR policies, procedures" },
+  { value: "products", label: "Products", description: "Product info, documentation" },
+  { value: "general", label: "General", description: "Other documents" },
+];
+
 export interface Document {
   id: string;
   name: string;
   file_type: string;
   file_size: number;
+  category: DocumentCategory;
   status: "processing" | "ready" | "error";
   chunk_count: number;
   uploaded_by: string;
@@ -240,10 +258,11 @@ class ApiClient {
     return this.request("/api/documents");
   }
 
-  async uploadDocument(file: File): Promise<Document> {
+  async uploadDocument(file: File, category: DocumentCategory = "general"): Promise<Document> {
     const token = this.getToken();
     const formData = new FormData();
     formData.append("file", file);
+    formData.append("category", category);
 
     const response = await fetch(`${API_BASE_URL}/api/documents`, {
       method: "POST",

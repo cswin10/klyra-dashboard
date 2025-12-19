@@ -1,10 +1,10 @@
 import os
 import asyncio
 from typing import List
-from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, BackgroundTasks, Form
 from sqlalchemy.orm import Session
 from database import get_db
-from models import Document, DocumentStatus
+from models import Document, DocumentStatus, DocumentCategory
 from schemas import DocumentResponse
 from auth import get_current_user, CurrentUser
 from config import UPLOADS_DIR
@@ -25,6 +25,7 @@ def process_document_task(
     file_path: str,
     file_name: str,
     file_type: str,
+    category: str,
     db_url: str
 ):
     """Background task to process a document."""
@@ -46,7 +47,7 @@ def process_document_task(
         asyncio.set_event_loop(loop)
         try:
             chunk_count = loop.run_until_complete(
-                process_document(document_id, file_path, file_name, file_type)
+                process_document(document_id, file_path, file_name, file_type, category)
             )
         finally:
             loop.close()
@@ -85,6 +86,7 @@ async def get_documents(
 async def upload_document(
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
+    category: str = Form(default="general"),
     current_user: CurrentUser = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -97,6 +99,12 @@ async def upload_document(
             detail=f"File type not supported. Allowed types: {', '.join(ALLOWED_EXTENSIONS)}"
         )
 
+    # Validate category
+    try:
+        doc_category = DocumentCategory(category)
+    except ValueError:
+        doc_category = DocumentCategory.general
+
     # Read file content
     content = await file.read()
     file_size = len(content)
@@ -106,6 +114,7 @@ async def upload_document(
         name=file.filename,
         file_type=file_ext,
         file_size=file_size,
+        category=doc_category,
         status=DocumentStatus.processing,
         uploaded_by=current_user.id
     )
@@ -129,6 +138,7 @@ async def upload_document(
         file_path,
         file.filename,
         file_ext,
+        doc_category.value,
         settings.DATABASE_URL
     )
 

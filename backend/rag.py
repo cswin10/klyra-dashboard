@@ -77,7 +77,8 @@ async def process_document(
     document_id: str,
     file_path: str,
     file_name: str,
-    file_type: str
+    file_type: str,
+    category: str = "general"
 ) -> int:
     """
     Process a document: extract text, chunk it, generate embeddings, and store in ChromaDB.
@@ -109,6 +110,7 @@ async def process_document(
         metadatas.append({
             "document_id": document_id,
             "document_name": file_name,
+            "category": category,
             "chunk_index": i
         })
 
