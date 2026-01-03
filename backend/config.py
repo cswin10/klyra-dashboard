@@ -35,7 +35,7 @@ class Settings(BaseSettings):
     # RAG settings
     CHUNK_SIZE: int = 500
     CHUNK_OVERLAP: int = 50
-    TOP_K_RESULTS: int = 5
+    TOP_K_RESULTS: int = 10  # Increased to find more relevant context
 
     class Config:
         env_file = ".env"

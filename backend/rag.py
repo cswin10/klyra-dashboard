@@ -247,6 +247,9 @@ WHAT YOU DON'T DO:
     MIN_RELEVANCE_SCORE = 0.5
 
     # Log all retrieved chunks for debugging
+    total_chunks = collection.count()
+    logger.info(f"ChromaDB has {total_chunks} total chunks")
+
     if context_chunks:
         logger.info(f"RAG search for query: '{query[:50]}...'")
         for doc, text, score in context_chunks:
