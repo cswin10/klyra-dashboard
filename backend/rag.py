@@ -75,8 +75,14 @@ def extract_text(file_path: str, file_type: str) -> str:
         raise ValueError(f"Unsupported file type: {file_type}")
 
 
-def chunk_text(text: str) -> List[str]:
-    """Split text into chunks for embedding."""
+def chunk_text(text: str, file_type: str = "txt") -> List[str]:
+    """Split text into chunks for embedding with context preservation."""
+
+    # For markdown files, use header-aware chunking
+    if file_type == "md":
+        return chunk_markdown_with_headers(text)
+
+    # Default chunking for other file types
     splitter = RecursiveCharacterTextSplitter(
         chunk_size=settings.CHUNK_SIZE,
         chunk_overlap=settings.CHUNK_OVERLAP,
@@ -84,6 +90,73 @@ def chunk_text(text: str) -> List[str]:
         separators=["\n\n", "\n", ". ", " ", ""]
     )
     return splitter.split_text(text)
+
+
+def chunk_markdown_with_headers(text: str) -> List[str]:
+    """
+    Smart markdown chunking that preserves section context.
+    Each chunk includes its parent headers so embeddings understand context.
+    """
+    import re
+
+    lines = text.split('\n')
+    chunks = []
+    current_headers = {}  # level -> header text
+    current_content = []
+    current_length = 0
+
+    def get_header_context():
+        """Build header context string from current headers."""
+        if not current_headers:
+            return ""
+        # Include headers in order (h1, h2, h3, etc.)
+        sorted_levels = sorted(current_headers.keys())
+        headers = [current_headers[level] for level in sorted_levels]
+        return " > ".join(headers) + "\n\n"
+
+    def flush_chunk():
+        """Save current content as a chunk with header context."""
+        nonlocal current_content, current_length
+        if current_content:
+            content = '\n'.join(current_content).strip()
+            if content:
+                header_context = get_header_context()
+                chunk = header_context + content
+                chunks.append(chunk)
+        current_content = []
+        current_length = 0
+
+    for line in lines:
+        # Check if line is a header
+        header_match = re.match(r'^(#{1,6})\s+(.+)$', line)
+
+        if header_match:
+            # Save current chunk before starting new section
+            flush_chunk()
+
+            level = len(header_match.group(1))
+            header_text = header_match.group(2).strip()
+
+            # Update header hierarchy (clear lower-level headers)
+            current_headers[level] = header_text
+            for l in list(current_headers.keys()):
+                if l > level:
+                    del current_headers[l]
+
+            continue
+
+        # Add line to current content
+        line_len = len(line) + 1  # +1 for newline
+        if current_length + line_len > settings.CHUNK_SIZE and current_content:
+            flush_chunk()
+
+        current_content.append(line)
+        current_length += line_len
+
+    # Don't forget the last chunk
+    flush_chunk()
+
+    return chunks
 
 
 async def process_document(
@@ -102,8 +175,8 @@ async def process_document(
     if not text:
         raise ValueError("No text could be extracted from the document")
 
-    # Split into chunks
-    chunks = chunk_text(text)
+    # Split into chunks (pass file_type for format-aware chunking)
+    chunks = chunk_text(text, file_type)
     if not chunks:
         raise ValueError("No chunks could be created from the document")
 
