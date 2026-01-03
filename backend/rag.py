@@ -242,11 +242,24 @@ WHAT YOU DON'T DO:
             history_parts.append(f"{role}: {msg['content']}")
         history_str = "\n\n".join(history_parts)
 
-    # Filter chunks by relevance score (only include if score > 0.75)
-    # High threshold ensures documents are truly relevant to the query
-    # Lower scores often match generic text that isn't actually helpful
-    MIN_RELEVANCE_SCORE = 0.75
+    # Filter chunks by relevance score (only include if score > threshold)
+    # Lower threshold to catch more potential matches
+    MIN_RELEVANCE_SCORE = 0.5
+
+    # Log all retrieved chunks for debugging
+    if context_chunks:
+        logger.info(f"RAG search for query: '{query[:50]}...'")
+        for doc, text, score in context_chunks:
+            logger.info(f"  - {doc}: score={score:.3f} | '{text[:60]}...'")
+    else:
+        logger.info(f"RAG search found no chunks for: '{query[:50]}...'")
+
     relevant_chunks = [(doc, text, score) for doc, text, score in context_chunks if score > MIN_RELEVANCE_SCORE]
+
+    if relevant_chunks:
+        logger.info(f"Using {len(relevant_chunks)} chunks above threshold {MIN_RELEVANCE_SCORE}")
+    else:
+        logger.info(f"No chunks above threshold {MIN_RELEVANCE_SCORE}, using general knowledge")
 
     if not relevant_chunks:
         # No relevant documents - use general knowledge freely
