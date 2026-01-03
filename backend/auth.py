@@ -82,6 +82,10 @@ async def get_current_user(
     if user is None:
         raise credentials_exception
 
+    # Update last_active timestamp
+    user.last_active = datetime.utcnow()
+    db.commit()
+
     # Extract values immediately before anything else
     current_user = CurrentUser(
         id=user.id,
