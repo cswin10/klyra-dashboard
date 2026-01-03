@@ -604,7 +604,8 @@ def build_rag_prompt_simple(query: str, documents: List[Tuple[str, str]], conver
         for i, msg in enumerate(conversation_history):
             logger.info(f"  [{i}] {msg['role']}: {msg['content'][:50]}...")
         history_parts = []
-        for msg in conversation_history[-10:]:
+        # Include more conversation history (up to 20 messages) so LLM remembers earlier context
+        for msg in conversation_history[-20:]:
             role = "User" if msg["role"] == "user" else "Assistant"
             history_parts.append(f"{role}: {msg['content']}")
         history_str = "\n\n".join(history_parts)
