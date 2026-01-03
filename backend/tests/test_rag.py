@@ -6,6 +6,8 @@ from rag import (
     chunk_text,
     build_rag_prompt,
     extract_text_from_txt,
+    process_citations,
+    MAX_CONTEXT_CHUNKS,
 )
 
 
@@ -30,8 +32,6 @@ class TestTextChunking:
         """Chunks should have some overlap."""
         text = "Sentence one. " * 50 + "Unique marker here. " + "Sentence two. " * 50
         chunks = chunk_text(text)
-        # If properly overlapping, the marker might appear in multiple chunks
-        # or chunks should have some shared content at boundaries
         assert len(chunks) > 1
 
     def test_empty_text(self):
@@ -45,7 +45,6 @@ class TestTextExtraction:
 
     def test_extract_from_txt(self, tmp_path):
         """Should extract text from txt file."""
-        # Create a temp txt file
         txt_file = tmp_path / "test.txt"
         txt_file.write_text("Hello, this is test content.")
 
@@ -67,65 +66,74 @@ class TestRAGPromptBuilding:
     def test_build_prompt_no_context(self):
         """Prompt without context should use general knowledge instruction."""
         query = "What is Python?"
-        prompt, sources = build_rag_prompt(query, [])
+        prompt, provided_docs = build_rag_prompt(query, [])
 
         assert "Klyra" in prompt
         assert query in prompt
-        assert sources == []  # Always empty - LLM handles citations
+        assert provided_docs == []
         assert "general knowledge" in prompt.lower()
 
-    def test_build_prompt_always_returns_empty_sources(self):
-        """Sources should always be empty - LLM decides what to cite."""
+    def test_build_prompt_returns_provided_docs(self):
+        """Should return list of documents that were included in prompt."""
         query = "What is Python?"
         context = [
             ("python_guide.pdf", "Python is a programming language", 0.85),
             ("intro.pdf", "Learn Python basics", 0.80),
         ]
-        prompt, sources = build_rag_prompt(query, context)
+        prompt, provided_docs = build_rag_prompt(query, context)
 
-        # Sources always empty - LLM includes citations in response text
-        assert sources == []
-        # But documents should be in prompt for LLM to consider
+        # Returns docs that were provided (for citation validation)
+        assert "python_guide.pdf" in provided_docs
+        assert "intro.pdf" in provided_docs
+        # Documents should be in prompt for LLM to consider
         assert "Python is a programming language" in prompt
         assert "Learn Python basics" in prompt
 
     def test_build_prompt_includes_citation_instructions(self):
-        """Prompt should include citation rules for LLM."""
+        """Prompt should include citation rules and examples for LLM."""
         query = "What is Python?"
         context = [("doc.pdf", "Python content", 0.85)]
-        prompt, sources = build_rag_prompt(query, context)
+        prompt, provided_docs = build_rag_prompt(query, context)
 
         assert "CITATION RULES" in prompt
-        assert "Sources:" in prompt  # Instruction on how to cite
+        assert "EXAMPLES" in prompt  # Few-shot examples
+        assert "Sources:" in prompt
+
+    def test_build_prompt_includes_few_shot_examples(self):
+        """Prompt should include few-shot examples."""
+        query = "What is Python?"
+        context = [("doc.pdf", "Python content", 0.85)]
+        prompt, provided_docs = build_rag_prompt(query, context)
+
+        assert "Example 1" in prompt
+        assert "Example 2" in prompt
         assert "general knowledge" in prompt.lower()
 
     def test_build_prompt_low_relevance_excluded(self):
         """Low relevance context (< 0.4) should be excluded from prompt."""
         query = "What is Python?"
         context = [
-            ("doc1.pdf", "Some irrelevant content", 0.3),  # Below 0.4 threshold
-            ("doc2.pdf", "More irrelevant content", 0.35),  # Below 0.4 threshold
+            ("doc1.pdf", "Some irrelevant content", 0.3),
+            ("doc2.pdf", "More irrelevant content", 0.35),
         ]
-        prompt, sources = build_rag_prompt(query, context)
+        prompt, provided_docs = build_rag_prompt(query, context)
 
-        assert sources == []
+        assert provided_docs == []
         assert "Some irrelevant content" not in prompt
         assert "More irrelevant content" not in prompt
 
-    def test_build_prompt_high_relevance_included(self):
-        """High relevance context (> 0.4) should be included in prompt."""
-        query = "What is Python?"
+    def test_build_prompt_context_limiting(self):
+        """Should limit chunks to MAX_CONTEXT_CHUNKS."""
+        query = "Test query"
+        # Create more chunks than the limit
         context = [
-            ("python_guide.pdf", "Python is a programming language", 0.85),
-            ("intro.pdf", "Learn Python basics", 0.80),
+            (f"doc{i}.pdf", f"Content {i}", 0.9 - i*0.01)
+            for i in range(15)
         ]
-        prompt, sources = build_rag_prompt(query, context)
+        prompt, provided_docs = build_rag_prompt(query, context)
 
-        # Content should be in prompt for LLM
-        assert "Python is a programming language" in prompt
-        assert "Learn Python basics" in prompt
-        # But sources always empty
-        assert sources == []
+        # Should only include MAX_CONTEXT_CHUNKS documents
+        assert len(provided_docs) <= MAX_CONTEXT_CHUNKS
 
     def test_build_prompt_with_conversation_history(self):
         """Prompt should include conversation history."""
@@ -135,7 +143,7 @@ class TestRAGPromptBuilding:
             {"role": "user", "content": "What is AI?"},
             {"role": "assistant", "content": "AI is artificial intelligence."},
         ]
-        prompt, sources = build_rag_prompt(query, context, history)
+        prompt, provided_docs = build_rag_prompt(query, context, history)
 
         assert "What is AI?" in prompt
         assert "AI is artificial intelligence" in prompt
@@ -144,7 +152,7 @@ class TestRAGPromptBuilding:
     def test_klyra_identity_in_prompt(self):
         """Prompt should include Klyra identity."""
         query = "Who are you?"
-        prompt, sources = build_rag_prompt(query, [])
+        prompt, provided_docs = build_rag_prompt(query, [])
 
         assert "Klyra" in prompt
         assert "Klyra Labs" in prompt
@@ -157,20 +165,111 @@ class TestRelevanceThreshold:
     def test_threshold_boundary_below(self):
         """Score of exactly 0.4 should be excluded."""
         query = "Test"
-        context = [("doc.pdf", "Content", 0.4)]  # Exactly at threshold
-        prompt, sources = build_rag_prompt(query, context)
+        context = [("doc.pdf", "Content", 0.4)]
+        prompt, provided_docs = build_rag_prompt(query, context)
 
-        # 0.4 is NOT > 0.4, so should be excluded
-        assert sources == []
-        assert "Content" not in prompt  # Shouldn't be in prompt either
+        assert provided_docs == []
+        assert "Content" not in prompt
 
     def test_threshold_boundary_above(self):
         """Score just above 0.4 should be included in prompt."""
         query = "Test"
         context = [("doc.pdf", "Important content here", 0.41)]
-        prompt, sources = build_rag_prompt(query, context)
+        prompt, provided_docs = build_rag_prompt(query, context)
 
-        # Sources always empty
-        assert sources == []
-        # But content should be in prompt
+        assert "doc.pdf" in provided_docs
         assert "Important content here" in prompt
+
+
+class TestCitationProcessing:
+    """Tests for citation validation and normalization."""
+
+    def test_process_valid_citation(self):
+        """Valid citations should be kept."""
+        response = "The answer is 42.\n\nSources: company-doc.pdf"
+        provided_docs = ["company-doc.pdf"]
+
+        cleaned, valid = process_citations(response, provided_docs)
+
+        assert "company-doc.pdf" in valid
+        assert "Sources: company-doc.pdf" in cleaned
+
+    def test_process_invalid_citation_stripped(self):
+        """Invalid citations (not in provided docs) should be stripped."""
+        response = "Paris is the capital.\n\nSources: geography.pdf"
+        provided_docs = ["company-handbook.pdf"]  # geography.pdf not provided
+
+        cleaned, valid = process_citations(response, provided_docs)
+
+        assert valid == []
+        assert "Sources:" not in cleaned
+        assert "Paris is the capital" in cleaned
+
+    def test_process_partial_match(self):
+        """Partial matches should work for citation validation."""
+        response = "The CEO is John.\n\nSources: handbook"
+        provided_docs = ["company-handbook.pdf"]
+
+        cleaned, valid = process_citations(response, provided_docs)
+
+        assert "company-handbook.pdf" in valid
+
+    def test_process_multiple_citations(self):
+        """Multiple citations should all be validated."""
+        response = "Info from docs.\n\nSources: doc1.pdf, doc2.pdf"
+        provided_docs = ["doc1.pdf", "doc2.pdf", "doc3.pdf"]
+
+        cleaned, valid = process_citations(response, provided_docs)
+
+        assert "doc1.pdf" in valid
+        assert "doc2.pdf" in valid
+        assert "doc3.pdf" not in valid  # Not cited
+
+    def test_process_mixed_valid_invalid(self):
+        """Mix of valid and invalid should only keep valid."""
+        response = "Answer here.\n\nSources: real-doc.pdf, fake-doc.pdf"
+        provided_docs = ["real-doc.pdf"]
+
+        cleaned, valid = process_citations(response, provided_docs)
+
+        assert "real-doc.pdf" in valid
+        assert "fake-doc.pdf" not in valid
+        assert len(valid) == 1
+
+    def test_process_no_citation(self):
+        """Response without citations should return empty sources."""
+        response = "This is a general knowledge answer."
+        provided_docs = ["some-doc.pdf"]
+
+        cleaned, valid = process_citations(response, provided_docs)
+
+        assert valid == []
+        assert cleaned == response
+
+    def test_process_normalizes_format(self):
+        """Different citation formats should be normalized."""
+        response = "Answer.\n\n(Source: doc.pdf)"
+        provided_docs = ["doc.pdf"]
+
+        cleaned, valid = process_citations(response, provided_docs)
+
+        # Should be normalized to standard format
+        assert "Sources: doc.pdf" in cleaned
+        assert "doc.pdf" in valid
+
+    def test_process_empty_response(self):
+        """Empty response should be handled."""
+        cleaned, valid = process_citations("", ["doc.pdf"])
+
+        assert cleaned == ""
+        assert valid == []
+
+    def test_process_removes_duplicates(self):
+        """Duplicate citations should be removed."""
+        response = "Info.\n\nSources: doc.pdf, doc.pdf, doc.pdf"
+        provided_docs = ["doc.pdf"]
+
+        cleaned, valid = process_citations(response, provided_docs)
+
+        assert valid == ["doc.pdf"]  # Only one
+        assert cleaned.count("doc.pdf") == 1

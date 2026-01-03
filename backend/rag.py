@@ -7,11 +7,15 @@ from chromadb.config import Settings as ChromaSettings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from PyPDF2 import PdfReader
 from docx import Document as DocxDocument
+import re
 from config import settings, CHROMA_DIR, UPLOADS_DIR
 from ollama import generate_embedding
 from logging_config import get_logger
 
 logger = get_logger("rag")
+
+# Maximum number of chunks to include in LLM context (prevents context overflow)
+MAX_CONTEXT_CHUNKS = 8
 
 # Initialize ChromaDB client
 # Use HTTP client when CHROMA_HOST is set (Docker/production), otherwise local persistent client
@@ -423,20 +427,46 @@ WHAT YOU DON'T DO:
     else:
         logger.info(f"RAG search found no chunks for: '{query[:50]}...'")
 
-    # Filter chunks that meet minimum relevance
+    # Filter chunks that meet minimum relevance AND limit to prevent context overflow
     relevant_chunks = [(doc, text, score) for doc, text, score in context_chunks if score > CONTEXT_THRESHOLD]
+    relevant_chunks = relevant_chunks[:MAX_CONTEXT_CHUNKS]  # Limit context size
 
     if relevant_chunks:
-        logger.info(f"Including {len(relevant_chunks)} chunks in context (>{CONTEXT_THRESHOLD})")
+        logger.info(f"Including {len(relevant_chunks)} chunks in context (>{CONTEXT_THRESHOLD}, max {MAX_CONTEXT_CHUNKS})")
     else:
         logger.info(f"No chunks above threshold {CONTEXT_THRESHOLD}, using general knowledge only")
 
-    # Instructions that tell LLM how to handle citations
-    citation_instructions = """CITATION RULES (IMPORTANT):
-1. If you use information from the documents below to answer, add "Sources: [filename]" at the END of your response
-2. If you answer from general knowledge (not using the documents), do NOT include any Sources line
-3. Only cite documents you actually used - never cite documents just because they were provided
-4. If the documents don't help answer the question, ignore them and answer from general knowledge"""
+    # Get list of document names actually provided (for validation later)
+    provided_docs = list(set(doc for doc, _, _ in relevant_chunks))
+
+    # Instructions with few-shot examples for reliable citation behavior
+    citation_instructions = """CITATION RULES (CRITICAL - follow exactly):
+
+RULE: Only add "Sources: [filename]" if you directly used information from the documents to answer.
+RULE: If answering from general knowledge, do NOT add any Sources line.
+
+EXAMPLES:
+
+Example 1 - Using document info:
+User: "Who is the CEO?"
+[Document says: "John Smith is CEO"]
+Response: "John Smith is the CEO of the company.
+
+Sources: company-info.pdf"
+
+Example 2 - General knowledge (NO sources):
+User: "What is the capital of France?"
+[Document talks about company policies]
+Response: "The capital of France is Paris."
+(NO Sources line - the document wasn't used)
+
+Example 3 - Document doesn't help:
+User: "What's the weather today?"
+[Document talks about HR policies]
+Response: "I don't have access to real-time weather information."
+(NO Sources line - document wasn't relevant)
+
+END OF EXAMPLES - Follow this pattern exactly."""
 
     if not relevant_chunks:
         # No relevant documents - pure general knowledge
@@ -498,8 +528,82 @@ User: {query}
 
 Klyra:"""
 
-    # Return empty sources - LLM will include citations in its response text
-    return prompt, []
+    # Return prompt and list of provided docs (for citation validation)
+    return prompt, provided_docs
+
+
+def process_citations(response: str, provided_docs: List[str]) -> Tuple[str, List[str]]:
+    """
+    Process LLM response to validate, normalize, and fix citations.
+
+    1. Parse any citations from the response
+    2. Validate cited docs were actually provided
+    3. Normalize format to "Sources: doc1, doc2"
+    4. Strip invalid citations (fallback detection)
+
+    Returns: (cleaned_response, valid_sources_list)
+    """
+    if not response:
+        return response, []
+
+    # Patterns to match various citation formats
+    citation_patterns = [
+        r'\n*Sources?:\s*(.+?)$',           # "Sources: doc.pdf" or "Source: doc.pdf"
+        r'\n*\(Sources?:\s*(.+?)\)',         # "(Sources: doc.pdf)"
+        r'\n*\[Sources?:\s*(.+?)\]',         # "[Sources: doc.pdf]"
+        r'\n*From:\s*(.+?)$',                # "From: doc.pdf"
+        r'\n*Reference:\s*(.+?)$',           # "Reference: doc.pdf"
+    ]
+
+    found_citations = []
+    cleaned_response = response
+
+    # Try each pattern
+    for pattern in citation_patterns:
+        matches = re.findall(pattern, response, re.IGNORECASE | re.MULTILINE)
+        for match in matches:
+            # Split by comma or "and" to get individual docs
+            docs = re.split(r',\s*|\s+and\s+', match)
+            docs = [d.strip().strip('"\'') for d in docs if d.strip()]
+            found_citations.extend(docs)
+            # Remove this citation from response for cleaning
+            cleaned_response = re.sub(pattern, '', cleaned_response, flags=re.IGNORECASE | re.MULTILINE)
+
+    # Validate citations against provided docs
+    valid_citations = []
+    invalid_citations = []
+
+    for citation in found_citations:
+        # Check if citation matches any provided doc (case-insensitive, partial match)
+        citation_lower = citation.lower()
+        matched = False
+        for provided in provided_docs:
+            provided_lower = provided.lower()
+            # Match if citation contains the doc name or vice versa
+            if citation_lower in provided_lower or provided_lower in citation_lower:
+                valid_citations.append(provided)  # Use the actual doc name
+                matched = True
+                break
+        if not matched:
+            invalid_citations.append(citation)
+
+    # Log validation results
+    if invalid_citations:
+        logger.warning(f"Stripped invalid citations (not in provided docs): {invalid_citations}")
+    if valid_citations:
+        logger.info(f"Valid citations: {valid_citations}")
+
+    # Remove duplicates while preserving order
+    valid_citations = list(dict.fromkeys(valid_citations))
+
+    # Clean up the response (remove extra whitespace at end)
+    cleaned_response = cleaned_response.rstrip()
+
+    # Add normalized citation if there are valid ones
+    if valid_citations:
+        cleaned_response += f"\n\nSources: {', '.join(valid_citations)}"
+
+    return cleaned_response, valid_citations
 
 
 async def query_with_rag(query: str, conversation_history: List[dict] = None) -> Tuple[str, List[str]]:
