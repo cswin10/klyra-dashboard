@@ -566,30 +566,134 @@ def process_citations(response: str, provided_docs: List[str]) -> Tuple[str, Lis
     return cleaned_response, valid_citations
 
 
-async def query_with_rag(query: str, conversation_history: List[dict] = None) -> Tuple[str, List[str]]:
+def get_all_document_content() -> List[Tuple[str, str]]:
+    """Get ALL document content from ChromaDB."""
+    if collection.count() == 0:
+        return []
+
+    all_data = collection.get(include=["documents", "metadatas"])
+    if not all_data or not all_data["documents"]:
+        return []
+
+    # Group chunks by document
+    doc_chunks = {}
+    for doc, meta in zip(all_data["documents"], all_data["metadatas"]):
+        doc_name = meta.get("document_name", "unknown")
+        if doc_name not in doc_chunks:
+            doc_chunks[doc_name] = []
+        doc_chunks[doc_name].append(doc)
+
+    # Combine chunks per document
+    result = []
+    for doc_name, chunks in doc_chunks.items():
+        full_text = "\n\n".join(chunks)
+        result.append((doc_name, full_text))
+
+    return result
+
+
+def build_rag_prompt_simple(query: str, documents: List[Tuple[str, str]], conversation_history: List[dict] = None) -> Tuple[str, List[str]]:
     """
-    Perform a RAG query: find similar chunks and build prompt with context.
-    Returns the built prompt and list of source documents.
-
-    conversation_history: List of {"role": "user"|"assistant", "content": "..."} dicts
+    Simple prompt: include ALL document content. LLM finds what's relevant.
     """
-    similar_chunks = []
+    # Build conversation history
+    history_str = ""
+    if conversation_history:
+        history_parts = []
+        for msg in conversation_history[-10:]:
+            role = "User" if msg["role"] == "user" else "Assistant"
+            history_parts.append(f"{role}: {msg['content']}")
+        history_str = "\n\n".join(history_parts)
 
-    # Only search if there are documents in the collection
-    if collection.count() > 0:
-        try:
-            similar_chunks = await search_similar_chunks(query)
-        except Exception as e:
-            # Log error but continue without RAG context
-            logger.warning(f"RAG search error (continuing without context): {e}")
-            similar_chunks = []
+    doc_names = [name for name, _ in documents]
 
-    # Build prompt with context and conversation history
-    prompt, sources = build_rag_prompt(query, similar_chunks, conversation_history)
+    if not documents:
+        if history_str:
+            prompt = f"""You are Klyra, a helpful AI assistant.
 
+CONVERSATION SO FAR:
+{history_str}
+
+Answer the user's question using your general knowledge.
+
+User: {query}
+
+Klyra:"""
+        else:
+            prompt = f"""You are Klyra, a helpful AI assistant.
+
+Answer the user's question using your general knowledge.
+
+User: {query}
+
+Klyra:"""
+        return prompt, []
+
+    # Build document content section - include EVERYTHING
+    doc_sections = []
+    for doc_name, content in documents:
+        doc_sections.append(f"=== {doc_name} ===\n{content}")
+    all_docs_text = "\n\n".join(doc_sections)
+
+    if history_str:
+        prompt = f"""You are Klyra, a helpful AI assistant for this company.
+
+CRITICAL RULES:
+- ONLY state facts that appear in the documents below
+- If the documents don't contain the answer, say "I don't have that information in the company documents"
+- NEVER invent names, dates, or facts
+- For general knowledge questions (history, science, etc.), use your training
+
+CONVERSATION SO FAR:
+{history_str}
+
+COMPANY DOCUMENTS (search through ALL of this to find the answer):
+{all_docs_text}
+
+User: {query}
+
+Answer the question using ONLY information from the documents above. Add "Sources: [filename]" at the end if you found relevant info.
+
+Klyra:"""
+    else:
+        prompt = f"""You are Klyra, a helpful AI assistant for this company.
+
+CRITICAL RULES:
+- ONLY state facts that appear in the documents below
+- If the documents don't contain the answer, say "I don't have that information in the company documents"
+- NEVER invent names, dates, or facts
+- For general knowledge questions (history, science, etc.), use your training
+
+COMPANY DOCUMENTS (search through ALL of this to find the answer):
+{all_docs_text}
+
+User: {query}
+
+Answer the question using ONLY information from the documents above. Add "Sources: [filename]" at the end if you found relevant info.
+
+Klyra:"""
+
+    return prompt, doc_names
+
+
+async def query_with_rag_simple(query: str, conversation_history: List[dict] = None) -> Tuple[str, List[str]]:
+    """
+    Simple RAG: include ALL document content in the prompt.
+    No thresholds, no semantic search scoring - the LLM sees everything.
+    """
+    all_docs = get_all_document_content()
+    logger.info(f"Simple RAG: Including {len(all_docs)} documents in prompt")
+    for doc_name, content in all_docs:
+        logger.info(f"  - {doc_name}: {len(content)} chars")
+
+    prompt, sources = build_rag_prompt_simple(query, all_docs, conversation_history)
     return prompt, sources
 
 
-def get_total_chunks() -> int:
-    """Get the total number of chunks in the collection."""
-    return collection.count()
+async def query_with_rag(query: str, conversation_history: List[dict] = None) -> Tuple[str, List[str]]:
+    """
+    Main RAG entry point - uses simple approach (include all documents).
+
+    Returns: (prompt, provided_doc_names)
+    """
+    return await query_with_rag_simple(query, conversation_history)
