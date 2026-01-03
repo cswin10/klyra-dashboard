@@ -636,40 +636,38 @@ Klyra:"""
     all_docs_text = "\n\n".join(doc_sections)
 
     if history_str:
-        prompt = f"""You are Klyra, a helpful AI assistant for this company.
+        prompt = f"""You are Klyra, a helpful AI assistant.
 
-CRITICAL RULES:
-- ONLY state facts that appear in the documents below
-- If the documents don't contain the answer, say "I don't have that information in the company documents"
-- NEVER invent names, dates, or facts
-- For general knowledge questions (history, science, etc.), use your training
+HOW TO ANSWER:
+1. For questions about the company, products, team, policies - use ONLY the documents below. Add "Sources: [filename]" when you use document info.
+2. For general knowledge questions (history, science, current events, etc.) - use your training data freely. No sources needed.
+3. If someone asks you to use your training/general knowledge, do so.
+
+IMPORTANT: For company info, NEVER make up names, dates, or facts. Only use what's in the documents.
 
 CONVERSATION SO FAR:
 {history_str}
 
-COMPANY DOCUMENTS (search through ALL of this to find the answer):
+COMPANY DOCUMENTS:
 {all_docs_text}
 
 User: {query}
-
-Answer the question using ONLY information from the documents above. Add "Sources: [filename]" at the end if you found relevant info.
 
 Klyra:"""
     else:
-        prompt = f"""You are Klyra, a helpful AI assistant for this company.
+        prompt = f"""You are Klyra, a helpful AI assistant.
 
-CRITICAL RULES:
-- ONLY state facts that appear in the documents below
-- If the documents don't contain the answer, say "I don't have that information in the company documents"
-- NEVER invent names, dates, or facts
-- For general knowledge questions (history, science, etc.), use your training
+HOW TO ANSWER:
+1. For questions about the company, products, team, policies - use ONLY the documents below. Add "Sources: [filename]" when you use document info.
+2. For general knowledge questions (history, science, current events, etc.) - use your training data freely. No sources needed.
+3. If someone asks you to use your training/general knowledge, do so.
 
-COMPANY DOCUMENTS (search through ALL of this to find the answer):
+IMPORTANT: For company info, NEVER make up names, dates, or facts. Only use what's in the documents.
+
+COMPANY DOCUMENTS:
 {all_docs_text}
 
 User: {query}
-
-Answer the question using ONLY information from the documents above. Add "Sources: [filename]" at the end if you found relevant info.
 
 Klyra:"""
 
