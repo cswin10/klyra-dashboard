@@ -8,14 +8,22 @@ interface ChatInputProps {
   onSend: (message: string) => void;
   disabled?: boolean;
   placeholder?: string;
+  value?: string;
+  onChange?: (value: string) => void;
 }
 
 export function ChatInput({
   onSend,
   disabled = false,
   placeholder = "Ask Klyra anything...",
+  value,
+  onChange,
 }: ChatInputProps) {
-  const [message, setMessage] = useState("");
+  const [internalMessage, setInternalMessage] = useState("");
+
+  // Support both controlled and uncontrolled modes
+  const message = value !== undefined ? value : internalMessage;
+  const setMessage = onChange || setInternalMessage;
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
@@ -29,9 +37,20 @@ export function ChatInput({
     e.preventDefault();
     if (message.trim() && !disabled) {
       onSend(message.trim());
-      setMessage("");
+      // Clear both internal and external state
+      setInternalMessage("");
+      if (onChange) onChange("");
     }
   };
+
+  // Focus the textarea when value changes externally (e.g., template selected)
+  useEffect(() => {
+    if (value && textareaRef.current) {
+      textareaRef.current.focus();
+      // Move cursor to end
+      textareaRef.current.selectionStart = textareaRef.current.value.length;
+    }
+  }, [value]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" && !e.shiftKey) {
