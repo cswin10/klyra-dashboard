@@ -413,9 +413,11 @@ WHAT YOU DON'T DO:
             history_parts.append(f"{role}: {msg['content']}")
         history_str = "\n\n".join(history_parts)
 
-    # Filter chunks by relevance score (only include if score > threshold)
-    # Lower threshold to catch more potential matches
-    MIN_RELEVANCE_SCORE = 0.35
+    # Two-threshold system:
+    # - CONTEXT_THRESHOLD: Include in prompt for LLM to consider (lower)
+    # - CITATION_THRESHOLD: Only cite as sources if truly relevant (higher)
+    CONTEXT_THRESHOLD = 0.45  # Include in context for LLM
+    CITATION_THRESHOLD = 0.6  # Only cite if highly relevant
 
     # Log all retrieved chunks for debugging
     total_chunks = collection.count()
@@ -428,14 +430,19 @@ WHAT YOU DON'T DO:
     else:
         logger.info(f"RAG search found no chunks for: '{query[:50]}...'")
 
-    relevant_chunks = [(doc, text, score) for doc, text, score in context_chunks if score > MIN_RELEVANCE_SCORE]
+    # Filter for context (what LLM sees)
+    context_relevant = [(doc, text, score) for doc, text, score in context_chunks if score > CONTEXT_THRESHOLD]
+    # Filter for citation (what user sees as sources) - higher bar
+    citation_relevant = [(doc, text, score) for doc, text, score in context_chunks if score > CITATION_THRESHOLD]
 
-    if relevant_chunks:
-        logger.info(f"Using {len(relevant_chunks)} chunks above threshold {MIN_RELEVANCE_SCORE}")
+    if context_relevant:
+        logger.info(f"Including {len(context_relevant)} chunks in context (>{CONTEXT_THRESHOLD})")
+    if citation_relevant:
+        logger.info(f"Will cite {len(citation_relevant)} chunks as sources (>{CITATION_THRESHOLD})")
     else:
-        logger.info(f"No chunks above threshold {MIN_RELEVANCE_SCORE}, using general knowledge")
+        logger.info(f"No chunks above citation threshold {CITATION_THRESHOLD}, will not cite sources")
 
-    if not relevant_chunks:
+    if not context_relevant:
         # No relevant documents - use general knowledge freely
         if history_str:
             prompt = f"""{klyra_identity}
@@ -459,11 +466,14 @@ User: {query}
 Klyra:"""
         return prompt, []
 
-    # Build context string from retrieved documents
+    # Build context string from retrieved documents (using context_relevant)
     context_parts = []
-    source_docs = set()
-    for doc_name, chunk_text, score in relevant_chunks:
+    for doc_name, chunk_text, score in context_relevant:
         context_parts.append(f"[From: {doc_name}]\n{chunk_text}")
+
+    # Only cite sources that are highly relevant (using citation_relevant)
+    source_docs = set()
+    for doc_name, chunk_text, score in citation_relevant:
         source_docs.add(doc_name)
 
     context_str = "\n\n".join(context_parts)
