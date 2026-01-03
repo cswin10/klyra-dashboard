@@ -2,6 +2,9 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from database import init_db
+from logging_config import get_logger
+
+logger = get_logger("main")
 from routes import (
     auth_router,
     chats_router,
@@ -20,12 +23,12 @@ from routes import (
 async def lifespan(app: FastAPI):
     """Application lifespan handler."""
     # Startup
-    print("Initializing database...")
+    logger.info("Initializing database...")
     init_db()
-    print("Database initialized.")
+    logger.info("Database initialized successfully")
     yield
     # Shutdown
-    print("Shutting down...")
+    logger.info("Shutting down...")
 
 
 app = FastAPI(

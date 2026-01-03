@@ -2,7 +2,7 @@
 
 import React, { useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { Sidebar } from "@/components";
+import { Sidebar, ErrorBoundary } from "@/components";
 import { useAuth } from "@/lib/auth";
 
 export default function DashboardLayout({
@@ -34,7 +34,9 @@ export default function DashboardLayout({
   return (
     <div className="min-h-screen bg-page-bg">
       <Sidebar />
-      <main className="ml-sidebar p-page-padding">{children}</main>
+      <main className="ml-sidebar p-page-padding">
+        <ErrorBoundary>{children}</ErrorBoundary>
+      </main>
     </div>
   );
 }

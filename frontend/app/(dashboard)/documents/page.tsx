@@ -291,6 +291,21 @@ export default function DocumentsPage() {
         </div>
       )}
 
+      {/* Processing Banner */}
+      {documents.some((d) => d.status === "processing") && (
+        <div className="flex items-center gap-3 p-4 bg-status-yellow/10 border border-status-yellow/20 rounded-card">
+          <div className="animate-spin rounded-full h-5 w-5 border-2 border-status-yellow border-t-transparent"></div>
+          <div className="flex-1">
+            <p className="text-status-yellow font-medium">
+              Processing documents...
+            </p>
+            <p className="text-sm text-status-yellow/80">
+              {documents.filter((d) => d.status === "processing").length} document(s) being indexed. This page updates automatically.
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* Error Message */}
       {error && (
         <div className="p-4 bg-status-red/10 border border-status-red/20 rounded-card text-status-red text-sm">

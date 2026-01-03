@@ -1,6 +1,7 @@
 "use client";
 
 import React from "react";
+import { Loader2, CheckCircle, AlertCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 type BadgeVariant = "success" | "warning" | "error" | "default";
@@ -8,6 +9,7 @@ type BadgeVariant = "success" | "warning" | "error" | "default";
 interface StatusBadgeProps {
   status: string;
   variant?: BadgeVariant;
+  showIcon?: boolean;
 }
 
 const variantStyles: Record<BadgeVariant, string> = {
@@ -25,17 +27,29 @@ const statusVariantMap: Record<string, BadgeVariant> = {
   user: "default",
 };
 
-export function StatusBadge({ status, variant }: StatusBadgeProps) {
+export function StatusBadge({ status, variant, showIcon = true }: StatusBadgeProps) {
   const resolvedVariant = variant || statusVariantMap[status.toLowerCase()] || "default";
+  const isProcessing = status.toLowerCase() === "processing";
+  const isReady = status.toLowerCase() === "ready";
+  const isError = status.toLowerCase() === "error";
 
   return (
     <span
       className={cn(
-        "inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border capitalize",
+        "inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium border capitalize",
         variantStyles[resolvedVariant]
       )}
     >
-      {status}
+      {showIcon && isProcessing && (
+        <Loader2 className="h-3 w-3 animate-spin" />
+      )}
+      {showIcon && isReady && (
+        <CheckCircle className="h-3 w-3" />
+      )}
+      {showIcon && isError && (
+        <AlertCircle className="h-3 w-3" />
+      )}
+      {isProcessing ? "Processing..." : status}
     </span>
   );
 }
