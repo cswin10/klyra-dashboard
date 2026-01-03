@@ -275,37 +275,36 @@ def keyword_search_chunks(query: str, top_k: int = 5) -> List[Tuple[str, str, fl
     Simple keyword-based search to catch exact matches semantic search might miss.
     Returns list of tuples: (document_name, chunk_text, score)
     """
-    # Extract key terms from query (simple approach)
     import re
-    words = re.findall(r'\b\w+\b', query.lower())
-    # Filter out common stop words
-    stop_words = {'what', 'who', 'where', 'when', 'how', 'why', 'is', 'are', 'the', 'a', 'an', 'does', 'do', 'at', 'in', 'on', 'for', 'to', 'of', 'and', 'or'}
+    query_lower = query.lower()
+
+    # Extract keywords from query
+    words = re.findall(r'\b\w+\b', query_lower)
+    stop_words = {'what', 'who', 'where', 'when', 'how', 'why', 'is', 'are', 'the', 'a', 'an', 'does', 'do', 'at', 'in', 'on', 'for', 'to', 'of', 'and', 'or', 'me', 'tell', 'about'}
     keywords = [w for w in words if w not in stop_words and len(w) > 2]
+
+    # Add related terms for common queries
+    if any(term in query_lower for term in ["who works", "team", "employees", "staff", "people"]):
+        keywords.extend(["team", "founder", "ceo", "cto", "head", "charlie", "joe"])
 
     if not keywords:
         return []
 
-    # Get all chunks and search for keyword matches
+    # Get all chunks
     all_chunks = collection.get(include=["documents", "metadatas"])
-
     if not all_chunks or not all_chunks["documents"]:
         return []
 
     matches = []
     for i, doc in enumerate(all_chunks["documents"]):
         doc_lower = doc.lower()
-        # Count keyword matches
         match_count = sum(1 for kw in keywords if kw in doc_lower)
         if match_count > 0:
             metadata = all_chunks["metadatas"][i]
-            # Score based on proportion of keywords matched
             score = match_count / len(keywords)
             matches.append((metadata["document_name"], doc, score, match_count))
 
-    # Sort by match count then by score
     matches.sort(key=lambda x: (x[3], x[2]), reverse=True)
-
-    # Return top_k results
     return [(m[0], m[1], m[2]) for m in matches[:top_k]]
 
 
@@ -348,16 +347,14 @@ async def search_similar_chunks(
             ))
             seen_chunks.add(doc[:100])  # Track by first 100 chars
 
-    # Also do keyword search - only add if MOST keywords match (high precision)
-    keyword_results = keyword_search_chunks(query, top_k=5)
+    # Add keyword search results - low threshold to catch team info etc
+    keyword_results = keyword_search_chunks(query, top_k=10)
     for doc_name, doc, kw_score in keyword_results:
         if doc[:100] not in seen_chunks:
-            # Only include if majority of keywords matched (kw_score >= 0.5)
-            # This prevents false positives from 1-2 common words matching
-            if kw_score >= 0.5:
-                # Map keyword score 0.5-1.0 to final score 0.5-0.65
-                # This is below citation threshold unless semantic also agrees
-                boosted_score = 0.5 + (kw_score * 0.15)
+            # Low threshold - include if any meaningful keywords match
+            if kw_score >= 0.15:
+                # Boost keyword matches to ensure they're included
+                boosted_score = 0.4 + (kw_score * 0.4)
                 formatted_results.append((doc_name, doc, boosted_score))
                 seen_chunks.add(doc[:100])
                 logger.info(f"Keyword match added: score={boosted_score:.3f} (kw={kw_score:.2f}) | '{doc[:60]}...'")
