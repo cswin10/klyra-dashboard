@@ -33,9 +33,9 @@ class Settings(BaseSettings):
     CHROMA_PORT: int = 8000
 
     # RAG settings
-    CHUNK_SIZE: int = 500
-    CHUNK_OVERLAP: int = 50
-    TOP_K_RESULTS: int = 10  # Increased to find more relevant context
+    CHUNK_SIZE: int = 800  # Larger chunks to keep more context together
+    CHUNK_OVERLAP: int = 100  # More overlap to preserve context across chunk boundaries
+    TOP_K_RESULTS: int = 15  # Retrieve more chunks for better coverage
 
     class Config:
         env_file = ".env"
