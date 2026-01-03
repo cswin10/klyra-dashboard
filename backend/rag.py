@@ -344,15 +344,19 @@ async def search_similar_chunks(
             ))
             seen_chunks.add(doc[:100])  # Track by first 100 chars
 
-    # Also do keyword search and merge results (boost keyword matches)
+    # Also do keyword search - only add if MOST keywords match (high precision)
     keyword_results = keyword_search_chunks(query, top_k=5)
     for doc_name, doc, kw_score in keyword_results:
         if doc[:100] not in seen_chunks:
-            # Add keyword matches with boosted score
-            boosted_score = min(0.7 + (kw_score * 0.3), 1.0)  # Boost to 0.7-1.0 range
-            formatted_results.append((doc_name, doc, boosted_score))
-            seen_chunks.add(doc[:100])
-            logger.info(f"Keyword match added: score={boosted_score:.3f} | '{doc[:60]}...'")
+            # Only include if majority of keywords matched (kw_score >= 0.5)
+            # This prevents false positives from 1-2 common words matching
+            if kw_score >= 0.5:
+                # Map keyword score 0.5-1.0 to final score 0.5-0.65
+                # This is below citation threshold unless semantic also agrees
+                boosted_score = 0.5 + (kw_score * 0.15)
+                formatted_results.append((doc_name, doc, boosted_score))
+                seen_chunks.add(doc[:100])
+                logger.info(f"Keyword match added: score={boosted_score:.3f} (kw={kw_score:.2f}) | '{doc[:60]}...'")
 
     # Re-sort by score and return top_k
     formatted_results.sort(key=lambda x: x[2], reverse=True)
