@@ -222,43 +222,141 @@ def delete_document_chunks(document_id: str) -> None:
         collection.delete(ids=results["ids"])
 
 
+def expand_query(query: str) -> str:
+    """
+    Expand a query with related terms to improve semantic search matching.
+    This helps bridge the semantic gap between user questions and document content.
+    """
+    query_lower = query.lower()
+    expansions = []
+
+    # People/team related queries
+    if any(term in query_lower for term in ["who works", "who is at", "employees", "staff", "team"]):
+        expansions.append("founding team members employees staff founders")
+
+    # Leadership queries
+    if any(term in query_lower for term in ["ceo", "cto", "founder", "leader", "management"]):
+        expansions.append("founding team CEO CTO founder leadership executive")
+
+    # About/company queries
+    if any(term in query_lower for term in ["about", "what is", "what does", "company"]):
+        expansions.append("about company mission vision overview")
+
+    # Contact queries
+    if any(term in query_lower for term in ["contact", "email", "phone", "address", "reach"]):
+        expansions.append("contact information email phone address")
+
+    # Product queries
+    if any(term in query_lower for term in ["product", "service", "offer", "solution"]):
+        expansions.append("products services solutions offerings")
+
+    # Technical/hardware queries
+    if any(term in query_lower for term in ["hardware", "specs", "specification", "technical", "system", "requirements"]):
+        expansions.append("technical specifications hardware requirements system specs")
+
+    # Klyra Box specific
+    if "klyra box" in query_lower or "hardware" in query_lower:
+        expansions.append("Klyra Box hardware Intel NUC specifications")
+
+    if expansions:
+        expanded = f"{query} {' '.join(expansions)}"
+        logger.info(f"Query expanded: '{query}' -> '{expanded}'")
+        return expanded
+
+    return query
+
+
+def keyword_search_chunks(query: str, top_k: int = 5) -> List[Tuple[str, str, float]]:
+    """
+    Simple keyword-based search to catch exact matches semantic search might miss.
+    Returns list of tuples: (document_name, chunk_text, score)
+    """
+    # Extract key terms from query (simple approach)
+    import re
+    words = re.findall(r'\b\w+\b', query.lower())
+    # Filter out common stop words
+    stop_words = {'what', 'who', 'where', 'when', 'how', 'why', 'is', 'are', 'the', 'a', 'an', 'does', 'do', 'at', 'in', 'on', 'for', 'to', 'of', 'and', 'or'}
+    keywords = [w for w in words if w not in stop_words and len(w) > 2]
+
+    if not keywords:
+        return []
+
+    # Get all chunks and search for keyword matches
+    all_chunks = collection.get(include=["documents", "metadatas"])
+
+    if not all_chunks or not all_chunks["documents"]:
+        return []
+
+    matches = []
+    for i, doc in enumerate(all_chunks["documents"]):
+        doc_lower = doc.lower()
+        # Count keyword matches
+        match_count = sum(1 for kw in keywords if kw in doc_lower)
+        if match_count > 0:
+            metadata = all_chunks["metadatas"][i]
+            # Score based on proportion of keywords matched
+            score = match_count / len(keywords)
+            matches.append((metadata["document_name"], doc, score, match_count))
+
+    # Sort by match count then by score
+    matches.sort(key=lambda x: (x[3], x[2]), reverse=True)
+
+    # Return top_k results
+    return [(m[0], m[1], m[2]) for m in matches[:top_k]]
+
+
 async def search_similar_chunks(
     query: str,
     top_k: int = None
 ) -> List[Tuple[str, str, float]]:
     """
-    Search for chunks similar to the query.
+    Hybrid search: semantic similarity + keyword matching.
     Returns list of tuples: (document_name, chunk_text, score)
     """
     top_k = top_k or settings.TOP_K_RESULTS
 
-    # Generate query embedding
-    query_embedding = await generate_embedding(query)
+    # Expand query with related terms for better matching
+    expanded_query = expand_query(query)
 
-    # Search ChromaDB
+    # Generate query embedding from expanded query
+    query_embedding = await generate_embedding(expanded_query)
+
+    # Semantic search with ChromaDB
     results = collection.query(
         query_embeddings=[query_embedding],
         n_results=top_k,
         include=["documents", "metadatas", "distances"]
     )
 
-    if not results or not results["documents"] or not results["documents"][0]:
-        return []
-
-    # Format results
+    # Format semantic search results
     formatted_results = []
-    for i, doc in enumerate(results["documents"][0]):
-        metadata = results["metadatas"][0][i]
-        distance = results["distances"][0][i]
-        # Convert distance to similarity score (1 - distance for cosine)
-        score = 1 - distance
-        formatted_results.append((
-            metadata["document_name"],
-            doc,
-            score
-        ))
+    seen_chunks = set()
 
-    return formatted_results
+    if results and results["documents"] and results["documents"][0]:
+        for i, doc in enumerate(results["documents"][0]):
+            metadata = results["metadatas"][0][i]
+            distance = results["distances"][0][i]
+            score = 1 - distance
+            formatted_results.append((
+                metadata["document_name"],
+                doc,
+                score
+            ))
+            seen_chunks.add(doc[:100])  # Track by first 100 chars
+
+    # Also do keyword search and merge results (boost keyword matches)
+    keyword_results = keyword_search_chunks(query, top_k=5)
+    for doc_name, doc, kw_score in keyword_results:
+        if doc[:100] not in seen_chunks:
+            # Add keyword matches with boosted score
+            boosted_score = min(0.7 + (kw_score * 0.3), 1.0)  # Boost to 0.7-1.0 range
+            formatted_results.append((doc_name, doc, boosted_score))
+            seen_chunks.add(doc[:100])
+            logger.info(f"Keyword match added: score={boosted_score:.3f} | '{doc[:60]}...'")
+
+    # Re-sort by score and return top_k
+    formatted_results.sort(key=lambda x: x[2], reverse=True)
+    return formatted_results[:top_k]
 
 
 def build_rag_prompt(query: str, context_chunks: List[Tuple[str, str, float]], conversation_history: List[dict] = None) -> Tuple[str, List[str]]:
@@ -317,7 +415,7 @@ WHAT YOU DON'T DO:
 
     # Filter chunks by relevance score (only include if score > threshold)
     # Lower threshold to catch more potential matches
-    MIN_RELEVANCE_SCORE = 0.5
+    MIN_RELEVANCE_SCORE = 0.35
 
     # Log all retrieved chunks for debugging
     total_chunks = collection.count()
