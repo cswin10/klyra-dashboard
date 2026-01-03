@@ -7,11 +7,15 @@ from chromadb.config import Settings as ChromaSettings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from PyPDF2 import PdfReader
 from docx import Document as DocxDocument
+import re
 from config import settings, CHROMA_DIR, UPLOADS_DIR
 from ollama import generate_embedding
 from logging_config import get_logger
 
 logger = get_logger("rag")
+
+# Maximum number of chunks to include in LLM context (prevents context overflow)
+MAX_CONTEXT_CHUNKS = 8
 
 # Initialize ChromaDB client
 # Use HTTP client when CHROMA_HOST is set (Docker/production), otherwise local persistent client
@@ -344,15 +348,19 @@ async def search_similar_chunks(
             ))
             seen_chunks.add(doc[:100])  # Track by first 100 chars
 
-    # Also do keyword search and merge results (boost keyword matches)
+    # Also do keyword search - only add if MOST keywords match (high precision)
     keyword_results = keyword_search_chunks(query, top_k=5)
     for doc_name, doc, kw_score in keyword_results:
         if doc[:100] not in seen_chunks:
-            # Add keyword matches with boosted score
-            boosted_score = min(0.7 + (kw_score * 0.3), 1.0)  # Boost to 0.7-1.0 range
-            formatted_results.append((doc_name, doc, boosted_score))
-            seen_chunks.add(doc[:100])
-            logger.info(f"Keyword match added: score={boosted_score:.3f} | '{doc[:60]}...'")
+            # Only include if majority of keywords matched (kw_score >= 0.5)
+            # This prevents false positives from 1-2 common words matching
+            if kw_score >= 0.5:
+                # Map keyword score 0.5-1.0 to final score 0.5-0.65
+                # This is below citation threshold unless semantic also agrees
+                boosted_score = 0.5 + (kw_score * 0.15)
+                formatted_results.append((doc_name, doc, boosted_score))
+                seen_chunks.add(doc[:100])
+                logger.info(f"Keyword match added: score={boosted_score:.3f} (kw={kw_score:.2f}) | '{doc[:60]}...'")
 
     # Re-sort by score and return top_k
     formatted_results.sort(key=lambda x: x[2], reverse=True)
@@ -362,7 +370,7 @@ async def search_similar_chunks(
 def build_rag_prompt(query: str, context_chunks: List[Tuple[str, str, float]], conversation_history: List[dict] = None) -> Tuple[str, List[str]]:
     """
     Build a prompt with RAG context and conversation history.
-    Returns the prompt and list of source document names.
+    Returns the prompt and empty list (LLM handles citations inline).
 
     conversation_history: List of {"role": "user"|"assistant", "content": "..."} dicts
     """
@@ -381,14 +389,6 @@ PERSONALITY:
 - Helpful and knowledgeable
 - Confident but not arrogant
 - You speak like a knowledgeable colleague, not a robotic assistant
-
-RESPONSE GUIDELINES:
-1. Match response length to the request - short questions get concise answers, detailed requests get comprehensive responses
-2. Use formatting (bullets, headers) only when it improves readability for longer responses
-3. For general knowledge: answer fully using your training knowledge
-4. For company-specific questions: use provided documents and cite sources
-5. If documents are provided but don't answer the question, say so and offer general knowledge if relevant
-6. If you genuinely don't know something, say "I don't have information on that" rather than guessing
 
 WHAT YOU DO:
 - Answer general knowledge questions comprehensively
@@ -413,13 +413,10 @@ WHAT YOU DON'T DO:
             history_parts.append(f"{role}: {msg['content']}")
         history_str = "\n\n".join(history_parts)
 
-    # Two-threshold system:
-    # - CONTEXT_THRESHOLD: Include in prompt for LLM to consider (lower)
-    # - CITATION_THRESHOLD: Only cite as sources if truly relevant (higher)
-    CONTEXT_THRESHOLD = 0.45  # Include in context for LLM
-    CITATION_THRESHOLD = 0.6  # Only cite if highly relevant
+    # Single threshold for including context - LLM decides what to cite
+    CONTEXT_THRESHOLD = 0.4
 
-    # Log all retrieved chunks for debugging
+    # Log retrieved chunks for debugging
     total_chunks = collection.count()
     logger.info(f"ChromaDB has {total_chunks} total chunks")
 
@@ -430,72 +427,89 @@ WHAT YOU DON'T DO:
     else:
         logger.info(f"RAG search found no chunks for: '{query[:50]}...'")
 
-    # Filter for context (what LLM sees)
-    context_relevant = [(doc, text, score) for doc, text, score in context_chunks if score > CONTEXT_THRESHOLD]
-    # Filter for citation (what user sees as sources) - higher bar
-    citation_relevant = [(doc, text, score) for doc, text, score in context_chunks if score > CITATION_THRESHOLD]
+    # Filter chunks that meet minimum relevance AND limit to prevent context overflow
+    relevant_chunks = [(doc, text, score) for doc, text, score in context_chunks if score > CONTEXT_THRESHOLD]
+    relevant_chunks = relevant_chunks[:MAX_CONTEXT_CHUNKS]  # Limit context size
 
-    if context_relevant:
-        logger.info(f"Including {len(context_relevant)} chunks in context (>{CONTEXT_THRESHOLD})")
-    if citation_relevant:
-        logger.info(f"Will cite {len(citation_relevant)} chunks as sources (>{CITATION_THRESHOLD})")
+    if relevant_chunks:
+        logger.info(f"Including {len(relevant_chunks)} chunks in context (>{CONTEXT_THRESHOLD}, max {MAX_CONTEXT_CHUNKS})")
     else:
-        logger.info(f"No chunks above citation threshold {CITATION_THRESHOLD}, will not cite sources")
+        logger.info(f"No chunks above threshold {CONTEXT_THRESHOLD}, using general knowledge only")
 
-    if not context_relevant:
-        # No relevant documents - use general knowledge freely
+    # Get list of document names actually provided (for validation later)
+    provided_docs = list(set(doc for doc, _, _ in relevant_chunks))
+
+    # Instructions with few-shot examples for reliable citation behavior
+    citation_instructions = """CITATION RULES (CRITICAL - follow exactly):
+
+RULE: Only add "Sources: [filename]" if you directly used information from the documents to answer.
+RULE: If answering from general knowledge, do NOT add any Sources line.
+
+EXAMPLES:
+
+Example 1 - Using document info:
+User: "Who is the CEO?"
+[Document says: "John Smith is CEO"]
+Response: "John Smith is the CEO of the company.
+
+Sources: company-info.pdf"
+
+Example 2 - General knowledge (NO sources):
+User: "What is the capital of France?"
+[Document talks about company policies]
+Response: "The capital of France is Paris."
+(NO Sources line - the document wasn't used)
+
+Example 3 - Document doesn't help:
+User: "What's the weather today?"
+[Document talks about HR policies]
+Response: "I don't have access to real-time weather information."
+(NO Sources line - document wasn't relevant)
+
+END OF EXAMPLES - Follow this pattern exactly."""
+
+    if not relevant_chunks:
+        # No relevant documents - pure general knowledge
+        base_prompt = f"""{klyra_identity}
+
+Answer the user's question using your general knowledge. Give a complete, helpful response.
+Do NOT mention sources or documents since none are relevant to this question."""
+
         if history_str:
-            prompt = f"""{klyra_identity}
+            prompt = f"""{base_prompt}
 
 CONVERSATION SO FAR:
 {history_str}
-
----
-Answer the user's question using your general knowledge. Give a complete, helpful response.
 
 User: {query}
 
 Klyra:"""
         else:
-            prompt = f"""{klyra_identity}
-
-Answer the user's question using your general knowledge. Give a complete, helpful response.
+            prompt = f"""{base_prompt}
 
 User: {query}
 
 Klyra:"""
         return prompt, []
 
-    # Build context string from retrieved documents (using context_relevant)
+    # Build context string from retrieved documents
     context_parts = []
-    for doc_name, chunk_text, score in context_relevant:
+    for doc_name, chunk_text, score in relevant_chunks:
         context_parts.append(f"[From: {doc_name}]\n{chunk_text}")
-
-    # Only cite sources that are highly relevant (using citation_relevant)
-    source_docs = set()
-    for doc_name, chunk_text, score in citation_relevant:
-        source_docs.add(doc_name)
-
     context_str = "\n\n".join(context_parts)
-
-    doc_instructions = """INSTRUCTIONS:
-- If these documents answer the question, use them and cite the source
-- If these documents are only partially relevant, use what helps and supplement with general knowledge
-- If these documents don't actually help with this question, ignore them and answer from general knowledge
-- Be honest if the documents don't contain what the user is looking for"""
 
     if history_str:
         prompt = f"""{klyra_identity}
 
+{citation_instructions}
+
 CONVERSATION SO FAR:
 {history_str}
 
-RELEVANT COMPANY DOCUMENTS:
+COMPANY DOCUMENTS (use only if relevant to the question):
 ---
 {context_str}
 ---
-
-{doc_instructions}
 
 User: {query}
 
@@ -503,18 +517,93 @@ Klyra:"""
     else:
         prompt = f"""{klyra_identity}
 
-RELEVANT COMPANY DOCUMENTS:
+{citation_instructions}
+
+COMPANY DOCUMENTS (use only if relevant to the question):
 ---
 {context_str}
 ---
-
-{doc_instructions}
 
 User: {query}
 
 Klyra:"""
 
-    return prompt, list(source_docs)
+    # Return prompt and list of provided docs (for citation validation)
+    return prompt, provided_docs
+
+
+def process_citations(response: str, provided_docs: List[str]) -> Tuple[str, List[str]]:
+    """
+    Process LLM response to validate, normalize, and fix citations.
+
+    1. Parse any citations from the response
+    2. Validate cited docs were actually provided
+    3. Normalize format to "Sources: doc1, doc2"
+    4. Strip invalid citations (fallback detection)
+
+    Returns: (cleaned_response, valid_sources_list)
+    """
+    if not response:
+        return response, []
+
+    # Patterns to match various citation formats
+    citation_patterns = [
+        r'\n*Sources?:\s*(.+?)$',           # "Sources: doc.pdf" or "Source: doc.pdf"
+        r'\n*\(Sources?:\s*(.+?)\)',         # "(Sources: doc.pdf)"
+        r'\n*\[Sources?:\s*(.+?)\]',         # "[Sources: doc.pdf]"
+        r'\n*From:\s*(.+?)$',                # "From: doc.pdf"
+        r'\n*Reference:\s*(.+?)$',           # "Reference: doc.pdf"
+    ]
+
+    found_citations = []
+    cleaned_response = response
+
+    # Try each pattern
+    for pattern in citation_patterns:
+        matches = re.findall(pattern, response, re.IGNORECASE | re.MULTILINE)
+        for match in matches:
+            # Split by comma or "and" to get individual docs
+            docs = re.split(r',\s*|\s+and\s+', match)
+            docs = [d.strip().strip('"\'') for d in docs if d.strip()]
+            found_citations.extend(docs)
+            # Remove this citation from response for cleaning
+            cleaned_response = re.sub(pattern, '', cleaned_response, flags=re.IGNORECASE | re.MULTILINE)
+
+    # Validate citations against provided docs
+    valid_citations = []
+    invalid_citations = []
+
+    for citation in found_citations:
+        # Check if citation matches any provided doc (case-insensitive, partial match)
+        citation_lower = citation.lower()
+        matched = False
+        for provided in provided_docs:
+            provided_lower = provided.lower()
+            # Match if citation contains the doc name or vice versa
+            if citation_lower in provided_lower or provided_lower in citation_lower:
+                valid_citations.append(provided)  # Use the actual doc name
+                matched = True
+                break
+        if not matched:
+            invalid_citations.append(citation)
+
+    # Log validation results
+    if invalid_citations:
+        logger.warning(f"Stripped invalid citations (not in provided docs): {invalid_citations}")
+    if valid_citations:
+        logger.info(f"Valid citations: {valid_citations}")
+
+    # Remove duplicates while preserving order
+    valid_citations = list(dict.fromkeys(valid_citations))
+
+    # Clean up the response (remove extra whitespace at end)
+    cleaned_response = cleaned_response.rstrip()
+
+    # Add normalized citation if there are valid ones
+    if valid_citations:
+        cleaned_response += f"\n\nSources: {', '.join(valid_citations)}"
+
+    return cleaned_response, valid_citations
 
 
 async def query_with_rag(query: str, conversation_history: List[dict] = None) -> Tuple[str, List[str]]:

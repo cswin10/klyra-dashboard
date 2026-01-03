@@ -9,7 +9,7 @@ from database import get_db
 from models import Chat, Message, MessageRole, Log
 from schemas import ChatCreate, ChatResponse, ChatListResponse, MessageCreate, MessageResponse
 from auth import get_current_user, CurrentUser
-from rag import query_with_rag
+from rag import query_with_rag, process_citations
 from ollama import generate_text
 
 router = APIRouter(prefix="/api/chats", tags=["chats"])
@@ -180,7 +180,8 @@ async def send_message(
     db.commit()
 
     # Build RAG prompt with conversation history
-    prompt, sources = await query_with_rag(query_content, conversation_history)
+    # provided_docs is the list of documents that were included in the prompt
+    prompt, provided_docs = await query_with_rag(query_content, conversation_history)
 
     # Capture user message ID for returning to frontend
     user_message_id = user_message.id
@@ -195,15 +196,18 @@ async def send_message(
                 # Send token as SSE
                 yield f"data: {json.dumps({'token': token})}\n\n"
 
+            # Process citations: validate, normalize, strip invalid ones
+            processed_response, valid_sources = process_citations(full_response, provided_docs)
+
             # Use a new session for saving (original may be closed)
             from database import SessionLocal
             with SessionLocal() as stream_db:
-                # Save assistant message
+                # Save assistant message with processed response and validated sources
                 assistant_message = Message(
                     chat_id=chat_id,
                     role=MessageRole.assistant,
-                    content=full_response,
-                    sources=sources if sources else None
+                    content=processed_response,
+                    sources=valid_sources if valid_sources else None
                 )
                 stream_db.add(assistant_message)
 
@@ -218,8 +222,8 @@ async def send_message(
                 stream_db.commit()
                 assistant_message_id = assistant_message.id
 
-            # Send completion signal with sources and message IDs for feedback
-            yield f"data: {json.dumps({'done': True, 'sources': sources, 'user_message_id': user_message_id, 'assistant_message_id': assistant_message_id})}\n\n"
+            # Send completion signal with validated sources and message IDs
+            yield f"data: {json.dumps({'done': True, 'sources': valid_sources, 'user_message_id': user_message_id, 'assistant_message_id': assistant_message_id})}\n\n"
 
         except Exception as e:
             yield f"data: {json.dumps({'error': str(e)})}\n\n"
