@@ -598,12 +598,17 @@ def build_rag_prompt_simple(query: str, documents: List[Tuple[str, str]], conver
     """
     # Build conversation history
     history_str = ""
+    logger.info(f"Building prompt for query: '{query[:50]}...'")
+    logger.info(f"Conversation history received: {len(conversation_history) if conversation_history else 0} messages")
     if conversation_history:
+        for i, msg in enumerate(conversation_history):
+            logger.info(f"  [{i}] {msg['role']}: {msg['content'][:50]}...")
         history_parts = []
         for msg in conversation_history[-10:]:
             role = "User" if msg["role"] == "user" else "Assistant"
             history_parts.append(f"{role}: {msg['content']}")
         history_str = "\n\n".join(history_parts)
+        logger.info(f"History string length: {len(history_str)} chars")
 
     doc_names = [name for name, _ in documents]
 
@@ -636,36 +641,39 @@ Klyra:"""
     all_docs_text = "\n\n".join(doc_sections)
 
     if history_str:
-        prompt = f"""You are Klyra, a helpful AI assistant.
+        prompt = f"""[SYSTEM INSTRUCTIONS - NOT PART OF CONVERSATION]
+You are Klyra, a helpful AI assistant.
 
-HOW TO ANSWER:
-1. For questions about the company, products, team, policies - use ONLY the documents below. Add "Sources: [filename]" when you use document info.
-2. For general knowledge questions (history, science, current events, etc.) - use your training data freely. No sources needed.
-3. If someone asks you to use your training/general knowledge, do so.
+For company questions: use ONLY the documents below, add "Sources: [filename]"
+For general knowledge: use your training data freely, no sources needed
+Answer directly without preamble. List ALL items when asked about lists.
+For company info: NEVER make up names, dates, or facts.
+[END SYSTEM INSTRUCTIONS]
 
-IMPORTANT: For company info, NEVER make up names, dates, or facts. Only use what's in the documents.
-
-CONVERSATION SO FAR:
+[CONVERSATION HISTORY]
 {history_str}
+[END CONVERSATION HISTORY]
 
-COMPANY DOCUMENTS:
+[REFERENCE DOCUMENTS]
 {all_docs_text}
+[END REFERENCE DOCUMENTS]
 
 User: {query}
 
 Klyra:"""
     else:
-        prompt = f"""You are Klyra, a helpful AI assistant.
+        prompt = f"""[SYSTEM INSTRUCTIONS - NOT PART OF CONVERSATION]
+You are Klyra, a helpful AI assistant.
 
-HOW TO ANSWER:
-1. For questions about the company, products, team, policies - use ONLY the documents below. Add "Sources: [filename]" when you use document info.
-2. For general knowledge questions (history, science, current events, etc.) - use your training data freely. No sources needed.
-3. If someone asks you to use your training/general knowledge, do so.
+For company questions: use ONLY the documents below, add "Sources: [filename]"
+For general knowledge: use your training data freely, no sources needed
+Answer directly without preamble. List ALL items when asked about lists.
+For company info: NEVER make up names, dates, or facts.
+[END SYSTEM INSTRUCTIONS]
 
-IMPORTANT: For company info, NEVER make up names, dates, or facts. Only use what's in the documents.
-
-COMPANY DOCUMENTS:
+[REFERENCE DOCUMENTS]
 {all_docs_text}
+[END REFERENCE DOCUMENTS]
 
 User: {query}
 
