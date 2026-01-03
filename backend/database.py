@@ -23,6 +23,11 @@ def get_db():
 
 
 def init_db():
-    """Initialize database tables."""
-    from models import User, Chat, Message, Document, Log
+    """Initialize database tables.
+
+    For development: Creates all tables directly from models.
+    For production: Use Alembic migrations instead:
+        alembic upgrade head
+    """
+    from models import User, Chat, Message, Document, Log, Feedback, AuditLog, PromptTemplate
     Base.metadata.create_all(bind=engine)

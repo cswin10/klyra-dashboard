@@ -9,6 +9,9 @@ from PyPDF2 import PdfReader
 from docx import Document as DocxDocument
 from config import settings, CHROMA_DIR, UPLOADS_DIR
 from ollama import generate_embedding
+from logging_config import get_logger
+
+logger = get_logger("rag")
 
 # Initialize ChromaDB client
 chroma_client = chromadb.PersistentClient(
@@ -322,7 +325,7 @@ async def query_with_rag(query: str, conversation_history: List[dict] = None) ->
             similar_chunks = await search_similar_chunks(query)
         except Exception as e:
             # Log error but continue without RAG context
-            print(f"RAG search error (continuing without context): {e}")
+            logger.warning(f"RAG search error (continuing without context): {e}")
             similar_chunks = []
 
     # Build prompt with context and conversation history

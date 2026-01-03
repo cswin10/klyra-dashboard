@@ -9,6 +9,9 @@ from schemas import DocumentResponse, DocumentVersionResponse
 from auth import get_current_user, CurrentUser
 from config import UPLOADS_DIR
 from rag import process_document, delete_document_chunks, search_similar_chunks
+from logging_config import get_logger
+
+logger = get_logger("documents")
 
 router = APIRouter(prefix="/api/documents", tags=["documents"])
 
@@ -56,7 +59,7 @@ def process_document_task(
         document.status = DocumentStatus.ready
         document.chunk_count = chunk_count
         db.commit()
-        print(f"Document processed successfully: {file_name} ({chunk_count} chunks)")
+        logger.info(f"Document processed successfully: {file_name} ({chunk_count} chunks)")
 
     except Exception as e:
         # Mark as error
@@ -64,9 +67,7 @@ def process_document_task(
         if document:
             document.status = DocumentStatus.error
             db.commit()
-        print(f"Error processing document: {e}")
-        import traceback
-        traceback.print_exc()
+        logger.error(f"Error processing document {file_name}: {e}", exc_info=True)
 
     finally:
         db.close()
