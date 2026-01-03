@@ -275,37 +275,36 @@ def keyword_search_chunks(query: str, top_k: int = 5) -> List[Tuple[str, str, fl
     Simple keyword-based search to catch exact matches semantic search might miss.
     Returns list of tuples: (document_name, chunk_text, score)
     """
-    # Extract key terms from query (simple approach)
     import re
-    words = re.findall(r'\b\w+\b', query.lower())
-    # Filter out common stop words
-    stop_words = {'what', 'who', 'where', 'when', 'how', 'why', 'is', 'are', 'the', 'a', 'an', 'does', 'do', 'at', 'in', 'on', 'for', 'to', 'of', 'and', 'or'}
+    query_lower = query.lower()
+
+    # Extract keywords from query
+    words = re.findall(r'\b\w+\b', query_lower)
+    stop_words = {'what', 'who', 'where', 'when', 'how', 'why', 'is', 'are', 'the', 'a', 'an', 'does', 'do', 'at', 'in', 'on', 'for', 'to', 'of', 'and', 'or', 'me', 'tell', 'about'}
     keywords = [w for w in words if w not in stop_words and len(w) > 2]
+
+    # Add related terms for common queries
+    if any(term in query_lower for term in ["who works", "team", "employees", "staff", "people"]):
+        keywords.extend(["team", "founder", "ceo", "cto", "head", "charlie", "joe"])
 
     if not keywords:
         return []
 
-    # Get all chunks and search for keyword matches
+    # Get all chunks
     all_chunks = collection.get(include=["documents", "metadatas"])
-
     if not all_chunks or not all_chunks["documents"]:
         return []
 
     matches = []
     for i, doc in enumerate(all_chunks["documents"]):
         doc_lower = doc.lower()
-        # Count keyword matches
         match_count = sum(1 for kw in keywords if kw in doc_lower)
         if match_count > 0:
             metadata = all_chunks["metadatas"][i]
-            # Score based on proportion of keywords matched
             score = match_count / len(keywords)
             matches.append((metadata["document_name"], doc, score, match_count))
 
-    # Sort by match count then by score
     matches.sort(key=lambda x: (x[3], x[2]), reverse=True)
-
-    # Return top_k results
     return [(m[0], m[1], m[2]) for m in matches[:top_k]]
 
 
@@ -348,16 +347,14 @@ async def search_similar_chunks(
             ))
             seen_chunks.add(doc[:100])  # Track by first 100 chars
 
-    # Also do keyword search - only add if MOST keywords match (high precision)
-    keyword_results = keyword_search_chunks(query, top_k=5)
+    # Add keyword search results - low threshold to catch team info etc
+    keyword_results = keyword_search_chunks(query, top_k=10)
     for doc_name, doc, kw_score in keyword_results:
         if doc[:100] not in seen_chunks:
-            # Only include if majority of keywords matched (kw_score >= 0.5)
-            # This prevents false positives from 1-2 common words matching
-            if kw_score >= 0.5:
-                # Map keyword score 0.5-1.0 to final score 0.5-0.65
-                # This is below citation threshold unless semantic also agrees
-                boosted_score = 0.5 + (kw_score * 0.15)
+            # Low threshold - include if any meaningful keywords match
+            if kw_score >= 0.15:
+                # Boost keyword matches to ensure they're included
+                boosted_score = 0.4 + (kw_score * 0.4)
                 formatted_results.append((doc_name, doc, boosted_score))
                 seen_chunks.add(doc[:100])
                 logger.info(f"Keyword match added: score={boosted_score:.3f} (kw={kw_score:.2f}) | '{doc[:60]}...'")
@@ -569,30 +566,134 @@ def process_citations(response: str, provided_docs: List[str]) -> Tuple[str, Lis
     return cleaned_response, valid_citations
 
 
-async def query_with_rag(query: str, conversation_history: List[dict] = None) -> Tuple[str, List[str]]:
+def get_all_document_content() -> List[Tuple[str, str]]:
+    """Get ALL document content from ChromaDB."""
+    if collection.count() == 0:
+        return []
+
+    all_data = collection.get(include=["documents", "metadatas"])
+    if not all_data or not all_data["documents"]:
+        return []
+
+    # Group chunks by document
+    doc_chunks = {}
+    for doc, meta in zip(all_data["documents"], all_data["metadatas"]):
+        doc_name = meta.get("document_name", "unknown")
+        if doc_name not in doc_chunks:
+            doc_chunks[doc_name] = []
+        doc_chunks[doc_name].append(doc)
+
+    # Combine chunks per document
+    result = []
+    for doc_name, chunks in doc_chunks.items():
+        full_text = "\n\n".join(chunks)
+        result.append((doc_name, full_text))
+
+    return result
+
+
+def build_rag_prompt_simple(query: str, documents: List[Tuple[str, str]], conversation_history: List[dict] = None) -> Tuple[str, List[str]]:
     """
-    Perform a RAG query: find similar chunks and build prompt with context.
-    Returns the built prompt and list of source documents.
-
-    conversation_history: List of {"role": "user"|"assistant", "content": "..."} dicts
+    Simple prompt: include ALL document content. LLM finds what's relevant.
     """
-    similar_chunks = []
+    # Build conversation history
+    history_str = ""
+    if conversation_history:
+        history_parts = []
+        for msg in conversation_history[-10:]:
+            role = "User" if msg["role"] == "user" else "Assistant"
+            history_parts.append(f"{role}: {msg['content']}")
+        history_str = "\n\n".join(history_parts)
 
-    # Only search if there are documents in the collection
-    if collection.count() > 0:
-        try:
-            similar_chunks = await search_similar_chunks(query)
-        except Exception as e:
-            # Log error but continue without RAG context
-            logger.warning(f"RAG search error (continuing without context): {e}")
-            similar_chunks = []
+    doc_names = [name for name, _ in documents]
 
-    # Build prompt with context and conversation history
-    prompt, sources = build_rag_prompt(query, similar_chunks, conversation_history)
+    if not documents:
+        if history_str:
+            prompt = f"""You are Klyra, a helpful AI assistant.
 
+CONVERSATION SO FAR:
+{history_str}
+
+Answer the user's question using your general knowledge.
+
+User: {query}
+
+Klyra:"""
+        else:
+            prompt = f"""You are Klyra, a helpful AI assistant.
+
+Answer the user's question using your general knowledge.
+
+User: {query}
+
+Klyra:"""
+        return prompt, []
+
+    # Build document content section - include EVERYTHING
+    doc_sections = []
+    for doc_name, content in documents:
+        doc_sections.append(f"=== {doc_name} ===\n{content}")
+    all_docs_text = "\n\n".join(doc_sections)
+
+    if history_str:
+        prompt = f"""You are Klyra, a helpful AI assistant for this company.
+
+CRITICAL RULES:
+- ONLY state facts that appear in the documents below
+- If the documents don't contain the answer, say "I don't have that information in the company documents"
+- NEVER invent names, dates, or facts
+- For general knowledge questions (history, science, etc.), use your training
+
+CONVERSATION SO FAR:
+{history_str}
+
+COMPANY DOCUMENTS (search through ALL of this to find the answer):
+{all_docs_text}
+
+User: {query}
+
+Answer the question using ONLY information from the documents above. Add "Sources: [filename]" at the end if you found relevant info.
+
+Klyra:"""
+    else:
+        prompt = f"""You are Klyra, a helpful AI assistant for this company.
+
+CRITICAL RULES:
+- ONLY state facts that appear in the documents below
+- If the documents don't contain the answer, say "I don't have that information in the company documents"
+- NEVER invent names, dates, or facts
+- For general knowledge questions (history, science, etc.), use your training
+
+COMPANY DOCUMENTS (search through ALL of this to find the answer):
+{all_docs_text}
+
+User: {query}
+
+Answer the question using ONLY information from the documents above. Add "Sources: [filename]" at the end if you found relevant info.
+
+Klyra:"""
+
+    return prompt, doc_names
+
+
+async def query_with_rag_simple(query: str, conversation_history: List[dict] = None) -> Tuple[str, List[str]]:
+    """
+    Simple RAG: include ALL document content in the prompt.
+    No thresholds, no semantic search scoring - the LLM sees everything.
+    """
+    all_docs = get_all_document_content()
+    logger.info(f"Simple RAG: Including {len(all_docs)} documents in prompt")
+    for doc_name, content in all_docs:
+        logger.info(f"  - {doc_name}: {len(content)} chars")
+
+    prompt, sources = build_rag_prompt_simple(query, all_docs, conversation_history)
     return prompt, sources
 
 
-def get_total_chunks() -> int:
-    """Get the total number of chunks in the collection."""
-    return collection.count()
+async def query_with_rag(query: str, conversation_history: List[dict] = None) -> Tuple[str, List[str]]:
+    """
+    Main RAG entry point - uses simple approach (include all documents).
+
+    Returns: (prompt, provided_doc_names)
+    """
+    return await query_with_rag_simple(query, conversation_history)
