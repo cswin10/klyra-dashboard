@@ -8,7 +8,7 @@ from models import Document, DocumentStatus, DocumentCategory
 from schemas import DocumentResponse, DocumentVersionResponse
 from auth import get_current_user, CurrentUser
 from config import UPLOADS_DIR
-from rag import process_document, delete_document_chunks, search_similar_chunks
+from rag import process_document, delete_document_chunks, search_similar_chunks, collection
 from logging_config import get_logger
 
 logger = get_logger("documents")
@@ -391,3 +391,47 @@ async def revert_to_version(
         )
 
     return {"message": f"Reverted to version {target_doc.version}"}
+
+
+@router.get("/debug/chunks")
+async def debug_chunks(
+    current_user: CurrentUser = Depends(get_current_user)
+):
+    """Debug endpoint: Show all chunks in ChromaDB."""
+    # Only allow admins
+    if current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="Admin only")
+
+    try:
+        # Get all chunks from ChromaDB
+        all_data = collection.get(
+            include=["documents", "metadatas"]
+        )
+
+        total_chunks = len(all_data["ids"]) if all_data["ids"] else 0
+
+        # Format chunks for display
+        chunks = []
+        if all_data["ids"]:
+            for i, (chunk_id, doc, meta) in enumerate(zip(
+                all_data["ids"],
+                all_data["documents"],
+                all_data["metadatas"]
+            )):
+                chunks.append({
+                    "id": chunk_id,
+                    "document": meta.get("document_name", "unknown"),
+                    "preview": doc[:200] + "..." if len(doc) > 200 else doc,
+                    "full_text": doc
+                })
+
+        return {
+            "total_chunks": total_chunks,
+            "chunks": chunks
+        }
+    except Exception as e:
+        return {
+            "error": str(e),
+            "total_chunks": 0,
+            "chunks": []
+        }
