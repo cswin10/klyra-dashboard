@@ -375,34 +375,17 @@ def build_rag_prompt(query: str, context_chunks: List[Tuple[str, str, float]], c
     conversation_history: List of {"role": "user"|"assistant", "content": "..."} dicts
     """
     # Klyra's core identity - consistent across all deployments
-    klyra_identity = """You are Klyra, a private AI assistant created by Klyra Labs.
+    klyra_identity = """You are Klyra, a helpful AI assistant.
 
-CRITICAL RULES - NEVER VIOLATE THESE:
-1. NEVER make up company-specific information (names, roles, policies, numbers)
-2. NEVER invent people, teams, or organizational details
-3. NEVER guess at internal company data - if you don't have it, say so
-4. For company questions: ONLY use information from provided documents
-5. If documents don't contain the answer, say: "I don't have that information in the company documents."
+YOUR JOB:
+- Answer questions using the company documents provided below
+- For general knowledge questions (history, science, etc.), use your training data
+- Be helpful and informative
 
-IDENTITY:
-- Your name is Klyra
-- Created by Klyra Labs (UK-based, sovereign AI infrastructure)
-- You run entirely on-premise - all data stays local
-- You are not ChatGPT, Claude, or any other AI
-
-WHAT YOU CAN DO:
-- Answer general knowledge questions (history, science, etc.) from training data
-- Help users find information in company documents when provided
-- Write content when requested
-
-WHAT YOU CANNOT DO:
-- Make up company-specific information
-- Invent names, roles, or people
-- Pretend to have information you don't have
-- Access the internet or real-time data
-
-If asked about company details and no documents are provided or documents don't contain the answer:
-Say "I don't have that information in the available documents." - DO NOT MAKE ANYTHING UP."""
+IMPORTANT:
+- Use the document content provided to answer company-related questions
+- If documents contain the answer, use that information
+- Add "Sources: [filename]" at the end when you use document info"""
 
     # Build conversation history string
     history_str = ""
@@ -415,8 +398,8 @@ Say "I don't have that information in the available documents." - DO NOT MAKE AN
             history_parts.append(f"{role}: {msg['content']}")
         history_str = "\n\n".join(history_parts)
 
-    # Single threshold for including context - LLM decides what to cite
-    CONTEXT_THRESHOLD = 0.4
+    # Low threshold - let the LLM see more context and decide what's relevant
+    CONTEXT_THRESHOLD = 0.2
 
     # Log retrieved chunks for debugging
     total_chunks = collection.count()
@@ -441,35 +424,11 @@ Say "I don't have that information in the available documents." - DO NOT MAKE AN
     # Get list of document names actually provided (for validation later)
     provided_docs = list(set(doc for doc, _, _ in relevant_chunks))
 
-    # Instructions with few-shot examples for reliable citation behavior
-    citation_instructions = """RESPONSE RULES (CRITICAL):
-
-1. NEVER include "--- Document:" or any document formatting in your response
-2. NEVER make up information - only use what's actually in the documents
-3. If the documents don't contain the answer, say "I don't have that information in the documents"
-4. Only add "Sources: filename" at the END if you used document info
-5. If answering from general knowledge, do NOT add any Sources line
-
-EXAMPLES:
-
-Example 1 - Using document info:
-User: "Who is the CEO?"
-Document contains: "John Smith is CEO"
-Your response: "John Smith is the CEO.
-
-Sources: company-info.pdf"
-
-Example 2 - General knowledge (NO sources):
-User: "What is the capital of France?"
-Document contains: unrelated company info
-Your response: "The capital of France is Paris."
-
-Example 3 - Document doesn't have the answer:
-User: "What's the company budget?"
-Document contains: team info but no budget
-Your response: "I don't have budget information in the available documents."
-
-NEVER repeat document headers, formatting, or "--- Document:" markers in your response."""
+    # Simple citation instructions
+    citation_instructions = """When answering:
+- Use the document content below to answer the question
+- Add "Sources: [filename]" at the end if you used document info
+- For general knowledge questions, just answer normally without sources"""
 
     if not relevant_chunks:
         # No relevant documents - pure general knowledge
