@@ -598,12 +598,17 @@ def build_rag_prompt_simple(query: str, documents: List[Tuple[str, str]], conver
     """
     # Build conversation history
     history_str = ""
+    logger.info(f"Building prompt for query: '{query[:50]}...'")
+    logger.info(f"Conversation history received: {len(conversation_history) if conversation_history else 0} messages")
     if conversation_history:
+        for i, msg in enumerate(conversation_history):
+            logger.info(f"  [{i}] {msg['role']}: {msg['content'][:50]}...")
         history_parts = []
         for msg in conversation_history[-10:]:
             role = "User" if msg["role"] == "user" else "Assistant"
             history_parts.append(f"{role}: {msg['content']}")
         history_str = "\n\n".join(history_parts)
+        logger.info(f"History string length: {len(history_str)} chars")
 
     doc_names = [name for name, _ in documents]
 
