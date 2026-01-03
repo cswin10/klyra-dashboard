@@ -440,33 +440,34 @@ WHAT YOU DON'T DO:
     provided_docs = list(set(doc for doc, _, _ in relevant_chunks))
 
     # Instructions with few-shot examples for reliable citation behavior
-    citation_instructions = """CITATION RULES (CRITICAL - follow exactly):
+    citation_instructions = """RESPONSE RULES (CRITICAL):
 
-RULE: Only add "Sources: [filename]" if you directly used information from the documents to answer.
-RULE: If answering from general knowledge, do NOT add any Sources line.
+1. NEVER include "--- Document:" or any document formatting in your response
+2. NEVER make up information - only use what's actually in the documents
+3. If the documents don't contain the answer, say "I don't have that information in the documents"
+4. Only add "Sources: filename" at the END if you used document info
+5. If answering from general knowledge, do NOT add any Sources line
 
 EXAMPLES:
 
 Example 1 - Using document info:
 User: "Who is the CEO?"
-[Document says: "John Smith is CEO"]
-Response: "John Smith is the CEO of the company.
+Document contains: "John Smith is CEO"
+Your response: "John Smith is the CEO.
 
 Sources: company-info.pdf"
 
 Example 2 - General knowledge (NO sources):
 User: "What is the capital of France?"
-[Document talks about company policies]
-Response: "The capital of France is Paris."
-(NO Sources line - the document wasn't used)
+Document contains: unrelated company info
+Your response: "The capital of France is Paris."
 
-Example 3 - Document doesn't help:
-User: "What's the weather today?"
-[Document talks about HR policies]
-Response: "I don't have access to real-time weather information."
-(NO Sources line - document wasn't relevant)
+Example 3 - Document doesn't have the answer:
+User: "What's the company budget?"
+Document contains: team info but no budget
+Your response: "I don't have budget information in the available documents."
 
-END OF EXAMPLES - Follow this pattern exactly."""
+NEVER repeat document headers, formatting, or "--- Document:" markers in your response."""
 
     if not relevant_chunks:
         # No relevant documents - pure general knowledge
@@ -493,9 +494,10 @@ Klyra:"""
         return prompt, []
 
     # Build context string from retrieved documents
+    # Use a format that's less likely to leak into response
     context_parts = []
     for doc_name, chunk_text, score in relevant_chunks:
-        context_parts.append(f"[From: {doc_name}]\n{chunk_text}")
+        context_parts.append(f"--- Document: {doc_name} ---\n{chunk_text}")
     context_str = "\n\n".join(context_parts)
 
     if history_str:
