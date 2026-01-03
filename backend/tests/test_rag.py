@@ -21,7 +21,7 @@ class TestTextChunking:
 
     def test_chunk_long_text(self):
         """Long text should be split into multiple chunks."""
-        # Create text longer than chunk size (500 chars)
+        # Create text longer than chunk size (800 chars)
         text = "This is a sentence. " * 100
         chunks = chunk_text(text)
         assert len(chunks) > 1
@@ -62,7 +62,7 @@ class TestTextExtraction:
 
 
 class TestRAGPromptBuilding:
-    """Tests for RAG prompt construction."""
+    """Tests for RAG prompt construction with LLM-driven citations."""
 
     def test_build_prompt_no_context(self):
         """Prompt without context should use general knowledge instruction."""
@@ -71,25 +71,11 @@ class TestRAGPromptBuilding:
 
         assert "Klyra" in prompt
         assert query in prompt
-        assert sources == []
+        assert sources == []  # Always empty - LLM handles citations
         assert "general knowledge" in prompt.lower()
 
-    def test_build_prompt_with_low_relevance_context(self):
-        """Low relevance context (< 0.75) should be excluded."""
-        query = "What is Python?"
-        context = [
-            ("doc1.pdf", "Some irrelevant content", 0.5),  # Below threshold
-            ("doc2.pdf", "More irrelevant content", 0.6),  # Below threshold
-        ]
-        prompt, sources = build_rag_prompt(query, context)
-
-        # Low relevance docs should be excluded
-        assert sources == []
-        assert "doc1.pdf" not in prompt
-        assert "doc2.pdf" not in prompt
-
-    def test_build_prompt_with_high_relevance_context(self):
-        """High relevance context (> 0.75) should be included."""
+    def test_build_prompt_always_returns_empty_sources(self):
+        """Sources should always be empty - LLM decides what to cite."""
         query = "What is Python?"
         context = [
             ("python_guide.pdf", "Python is a programming language", 0.85),
@@ -97,23 +83,49 @@ class TestRAGPromptBuilding:
         ]
         prompt, sources = build_rag_prompt(query, context)
 
-        assert "python_guide.pdf" in sources
-        assert "intro.pdf" in sources
+        # Sources always empty - LLM includes citations in response text
+        assert sources == []
+        # But documents should be in prompt for LLM to consider
         assert "Python is a programming language" in prompt
         assert "Learn Python basics" in prompt
 
-    def test_build_prompt_mixed_relevance(self):
-        """Only high relevance context should be included."""
+    def test_build_prompt_includes_citation_instructions(self):
+        """Prompt should include citation rules for LLM."""
+        query = "What is Python?"
+        context = [("doc.pdf", "Python content", 0.85)]
+        prompt, sources = build_rag_prompt(query, context)
+
+        assert "CITATION RULES" in prompt
+        assert "Sources:" in prompt  # Instruction on how to cite
+        assert "general knowledge" in prompt.lower()
+
+    def test_build_prompt_low_relevance_excluded(self):
+        """Low relevance context (< 0.4) should be excluded from prompt."""
         query = "What is Python?"
         context = [
-            ("relevant.pdf", "Python content", 0.85),
-            ("irrelevant.pdf", "Unrelated content", 0.50),
+            ("doc1.pdf", "Some irrelevant content", 0.3),  # Below 0.4 threshold
+            ("doc2.pdf", "More irrelevant content", 0.35),  # Below 0.4 threshold
         ]
         prompt, sources = build_rag_prompt(query, context)
 
-        assert "relevant.pdf" in sources
-        assert "irrelevant.pdf" not in sources
-        assert len(sources) == 1
+        assert sources == []
+        assert "Some irrelevant content" not in prompt
+        assert "More irrelevant content" not in prompt
+
+    def test_build_prompt_high_relevance_included(self):
+        """High relevance context (> 0.4) should be included in prompt."""
+        query = "What is Python?"
+        context = [
+            ("python_guide.pdf", "Python is a programming language", 0.85),
+            ("intro.pdf", "Learn Python basics", 0.80),
+        ]
+        prompt, sources = build_rag_prompt(query, context)
+
+        # Content should be in prompt for LLM
+        assert "Python is a programming language" in prompt
+        assert "Learn Python basics" in prompt
+        # But sources always empty
+        assert sources == []
 
     def test_build_prompt_with_conversation_history(self):
         """Prompt should include conversation history."""
@@ -140,21 +152,25 @@ class TestRAGPromptBuilding:
 
 
 class TestRelevanceThreshold:
-    """Tests for the 0.75 relevance threshold."""
+    """Tests for the 0.4 relevance threshold."""
 
     def test_threshold_boundary_below(self):
-        """Score of exactly 0.75 should be excluded."""
+        """Score of exactly 0.4 should be excluded."""
         query = "Test"
-        context = [("doc.pdf", "Content", 0.75)]  # Exactly at threshold
+        context = [("doc.pdf", "Content", 0.4)]  # Exactly at threshold
         prompt, sources = build_rag_prompt(query, context)
 
-        # 0.75 is NOT > 0.75, so should be excluded
+        # 0.4 is NOT > 0.4, so should be excluded
         assert sources == []
+        assert "Content" not in prompt  # Shouldn't be in prompt either
 
     def test_threshold_boundary_above(self):
-        """Score just above 0.75 should be included."""
+        """Score just above 0.4 should be included in prompt."""
         query = "Test"
-        context = [("doc.pdf", "Content", 0.76)]
+        context = [("doc.pdf", "Important content here", 0.41)]
         prompt, sources = build_rag_prompt(query, context)
 
-        assert "doc.pdf" in sources
+        # Sources always empty
+        assert sources == []
+        # But content should be in prompt
+        assert "Important content here" in prompt

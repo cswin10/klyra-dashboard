@@ -366,7 +366,7 @@ async def search_similar_chunks(
 def build_rag_prompt(query: str, context_chunks: List[Tuple[str, str, float]], conversation_history: List[dict] = None) -> Tuple[str, List[str]]:
     """
     Build a prompt with RAG context and conversation history.
-    Returns the prompt and list of source document names.
+    Returns the prompt and empty list (LLM handles citations inline).
 
     conversation_history: List of {"role": "user"|"assistant", "content": "..."} dicts
     """
@@ -385,14 +385,6 @@ PERSONALITY:
 - Helpful and knowledgeable
 - Confident but not arrogant
 - You speak like a knowledgeable colleague, not a robotic assistant
-
-RESPONSE GUIDELINES:
-1. Match response length to the request - short questions get concise answers, detailed requests get comprehensive responses
-2. Use formatting (bullets, headers) only when it improves readability for longer responses
-3. For general knowledge: answer fully using your training knowledge
-4. For company-specific questions: use provided documents and cite sources
-5. If documents are provided but don't answer the question, say so and offer general knowledge if relevant
-6. If you genuinely don't know something, say "I don't have information on that" rather than guessing
 
 WHAT YOU DO:
 - Answer general knowledge questions comprehensively
@@ -417,13 +409,10 @@ WHAT YOU DON'T DO:
             history_parts.append(f"{role}: {msg['content']}")
         history_str = "\n\n".join(history_parts)
 
-    # Two-threshold system:
-    # - CONTEXT_THRESHOLD: Include in prompt for LLM to consider (lower)
-    # - CITATION_THRESHOLD: Only cite as sources if truly relevant (higher)
-    CONTEXT_THRESHOLD = 0.45  # Include in context for LLM
-    CITATION_THRESHOLD = 0.6  # Only cite if highly relevant
+    # Single threshold for including context - LLM decides what to cite
+    CONTEXT_THRESHOLD = 0.4
 
-    # Log all retrieved chunks for debugging
+    # Log retrieved chunks for debugging
     total_chunks = collection.count()
     logger.info(f"ChromaDB has {total_chunks} total chunks")
 
@@ -434,72 +423,63 @@ WHAT YOU DON'T DO:
     else:
         logger.info(f"RAG search found no chunks for: '{query[:50]}...'")
 
-    # Filter for context (what LLM sees)
-    context_relevant = [(doc, text, score) for doc, text, score in context_chunks if score > CONTEXT_THRESHOLD]
-    # Filter for citation (what user sees as sources) - higher bar
-    citation_relevant = [(doc, text, score) for doc, text, score in context_chunks if score > CITATION_THRESHOLD]
+    # Filter chunks that meet minimum relevance
+    relevant_chunks = [(doc, text, score) for doc, text, score in context_chunks if score > CONTEXT_THRESHOLD]
 
-    if context_relevant:
-        logger.info(f"Including {len(context_relevant)} chunks in context (>{CONTEXT_THRESHOLD})")
-    if citation_relevant:
-        logger.info(f"Will cite {len(citation_relevant)} chunks as sources (>{CITATION_THRESHOLD})")
+    if relevant_chunks:
+        logger.info(f"Including {len(relevant_chunks)} chunks in context (>{CONTEXT_THRESHOLD})")
     else:
-        logger.info(f"No chunks above citation threshold {CITATION_THRESHOLD}, will not cite sources")
+        logger.info(f"No chunks above threshold {CONTEXT_THRESHOLD}, using general knowledge only")
 
-    if not context_relevant:
-        # No relevant documents - use general knowledge freely
+    # Instructions that tell LLM how to handle citations
+    citation_instructions = """CITATION RULES (IMPORTANT):
+1. If you use information from the documents below to answer, add "Sources: [filename]" at the END of your response
+2. If you answer from general knowledge (not using the documents), do NOT include any Sources line
+3. Only cite documents you actually used - never cite documents just because they were provided
+4. If the documents don't help answer the question, ignore them and answer from general knowledge"""
+
+    if not relevant_chunks:
+        # No relevant documents - pure general knowledge
+        base_prompt = f"""{klyra_identity}
+
+Answer the user's question using your general knowledge. Give a complete, helpful response.
+Do NOT mention sources or documents since none are relevant to this question."""
+
         if history_str:
-            prompt = f"""{klyra_identity}
+            prompt = f"""{base_prompt}
 
 CONVERSATION SO FAR:
 {history_str}
-
----
-Answer the user's question using your general knowledge. Give a complete, helpful response.
 
 User: {query}
 
 Klyra:"""
         else:
-            prompt = f"""{klyra_identity}
-
-Answer the user's question using your general knowledge. Give a complete, helpful response.
+            prompt = f"""{base_prompt}
 
 User: {query}
 
 Klyra:"""
         return prompt, []
 
-    # Build context string from retrieved documents (using context_relevant)
+    # Build context string from retrieved documents
     context_parts = []
-    for doc_name, chunk_text, score in context_relevant:
+    for doc_name, chunk_text, score in relevant_chunks:
         context_parts.append(f"[From: {doc_name}]\n{chunk_text}")
-
-    # Only cite sources that are highly relevant (using citation_relevant)
-    source_docs = set()
-    for doc_name, chunk_text, score in citation_relevant:
-        source_docs.add(doc_name)
-
     context_str = "\n\n".join(context_parts)
-
-    doc_instructions = """INSTRUCTIONS:
-- If these documents answer the question, use them and cite the source
-- If these documents are only partially relevant, use what helps and supplement with general knowledge
-- If these documents don't actually help with this question, ignore them and answer from general knowledge
-- Be honest if the documents don't contain what the user is looking for"""
 
     if history_str:
         prompt = f"""{klyra_identity}
 
+{citation_instructions}
+
 CONVERSATION SO FAR:
 {history_str}
 
-RELEVANT COMPANY DOCUMENTS:
+COMPANY DOCUMENTS (use only if relevant to the question):
 ---
 {context_str}
 ---
-
-{doc_instructions}
 
 User: {query}
 
@@ -507,18 +487,19 @@ Klyra:"""
     else:
         prompt = f"""{klyra_identity}
 
-RELEVANT COMPANY DOCUMENTS:
+{citation_instructions}
+
+COMPANY DOCUMENTS (use only if relevant to the question):
 ---
 {context_str}
 ---
-
-{doc_instructions}
 
 User: {query}
 
 Klyra:"""
 
-    return prompt, list(source_docs)
+    # Return empty sources - LLM will include citations in its response text
+    return prompt, []
 
 
 async def query_with_rag(query: str, conversation_history: List[dict] = None) -> Tuple[str, List[str]]:
