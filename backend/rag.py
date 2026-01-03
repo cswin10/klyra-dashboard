@@ -14,10 +14,20 @@ from logging_config import get_logger
 logger = get_logger("rag")
 
 # Initialize ChromaDB client
-chroma_client = chromadb.PersistentClient(
-    path=str(CHROMA_DIR),
-    settings=ChromaSettings(anonymized_telemetry=False)
-)
+# Use HTTP client when CHROMA_HOST is set (Docker/production), otherwise local persistent client
+if settings.CHROMA_HOST:
+    chroma_client = chromadb.HttpClient(
+        host=settings.CHROMA_HOST,
+        port=settings.CHROMA_PORT,
+        settings=ChromaSettings(anonymized_telemetry=False)
+    )
+    logger.info(f"Using ChromaDB HTTP client: {settings.CHROMA_HOST}:{settings.CHROMA_PORT}")
+else:
+    chroma_client = chromadb.PersistentClient(
+        path=str(CHROMA_DIR),
+        settings=ChromaSettings(anonymized_telemetry=False)
+    )
+    logger.info(f"Using ChromaDB persistent client: {CHROMA_DIR}")
 
 # Get or create the documents collection
 collection = chroma_client.get_or_create_collection(

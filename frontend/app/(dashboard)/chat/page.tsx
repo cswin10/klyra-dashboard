@@ -32,6 +32,7 @@ export default function ChatPage() {
   const [isLoadingMessages, setIsLoadingMessages] = useState(false);
   const [isSending, setIsSending] = useState(false);
   const [templates, setTemplates] = useState<PromptTemplate[]>([]);
+  const [draftMessage, setDraftMessage] = useState("");
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -348,7 +349,7 @@ export default function ChatPage() {
                     {templates.slice(0, 6).map((template) => (
                       <button
                         key={template.id}
-                        onClick={() => handleSendMessage(template.prompt)}
+                        onClick={() => setDraftMessage(template.prompt)}
                         disabled={isSending}
                         className="flex items-start gap-3 p-4 bg-card-bg border border-card-border rounded-lg text-left hover:border-accent/50 hover:bg-card-bg/80 transition-all group"
                       >
@@ -384,10 +385,17 @@ export default function ChatPage() {
 
             {/* Input Area */}
             <div className="p-4 border-t border-card-border bg-page-bg">
+              {draftMessage.includes("[") && draftMessage.includes("]") && (
+                <p className="text-xs text-text-muted mb-2 px-1">
+                  Replace the [bracketed text] with your specific details, then press Enter to send.
+                </p>
+              )}
               <ChatInput
                 onSend={handleSendMessage}
                 disabled={isSending || !activeChatId}
                 placeholder="Ask Klyra anything..."
+                value={draftMessage}
+                onChange={setDraftMessage}
               />
             </div>
           </>

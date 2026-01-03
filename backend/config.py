@@ -15,7 +15,7 @@ CHROMA_DIR.mkdir(exist_ok=True)
 
 
 class Settings(BaseSettings):
-    # Database
+    # Database - supports SQLite (dev) or PostgreSQL (production)
     DATABASE_URL: str = f"sqlite:///{DATA_DIR}/klyra.db"
 
     # JWT
@@ -27,6 +27,10 @@ class Settings(BaseSettings):
     OLLAMA_BASE_URL: str = "http://localhost:11434"
     OLLAMA_MODEL: str = "llama3"
     OLLAMA_EMBED_MODEL: str = "nomic-embed-text"
+
+    # ChromaDB - set CHROMA_HOST for HTTP mode (Docker), leave empty for local mode
+    CHROMA_HOST: str = ""
+    CHROMA_PORT: int = 8000
 
     # RAG settings
     CHUNK_SIZE: int = 500
