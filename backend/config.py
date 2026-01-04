@@ -25,7 +25,7 @@ class Settings(BaseSettings):
 
     # Ollama
     OLLAMA_BASE_URL: str = "http://localhost:11434"
-    OLLAMA_MODEL: str = "mixtral"
+    OLLAMA_MODEL: str = "llama2:13b"
     OLLAMA_EMBED_MODEL: str = "nomic-embed-text"
 
     # ChromaDB - set CHROMA_HOST for HTTP mode (Docker), leave empty for local mode
