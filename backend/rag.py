@@ -645,7 +645,7 @@ Klyra:"""
         prompt = f"""[SYSTEM INSTRUCTIONS - NOT PART OF CONVERSATION]
 You are Klyra, a helpful AI assistant.
 
-For company questions: use ONLY the documents below, add "Sources: [filename]"
+For company questions: use ONLY the documents below, add "Sources: [document, section]" (e.g., "Sources: handbook.md, About > Team")
 For general knowledge: use your training data freely, no sources needed
 Answer directly without preamble. List ALL items when asked about lists.
 For company info: NEVER make up names, dates, or facts.
@@ -666,7 +666,7 @@ Klyra:"""
         prompt = f"""[SYSTEM INSTRUCTIONS - NOT PART OF CONVERSATION]
 You are Klyra, a helpful AI assistant.
 
-For company questions: use ONLY the documents below, add "Sources: [filename]"
+For company questions: use ONLY the documents below, add "Sources: [document, section]" (e.g., "Sources: handbook.md, About > Team")
 For general knowledge: use your training data freely, no sources needed
 Answer directly without preamble. List ALL items when asked about lists.
 For company info: NEVER make up names, dates, or facts.
@@ -697,10 +697,150 @@ async def query_with_rag_simple(query: str, conversation_history: List[dict] = N
     return prompt, sources
 
 
+def extract_section_from_chunk(chunk_text: str) -> str:
+    """
+    Extract section path from chunk with header context.
+    E.g., "Doc > Section > Subsection\n\nContent" -> "Section > Subsection"
+    """
+    lines = chunk_text.split('\n')
+    if lines and ' > ' in lines[0]:
+        parts = lines[0].strip().split(' > ')
+        if len(parts) > 1:
+            return ' > '.join(parts[1:])  # Skip doc name, return sections
+    return ""
+
+
+def build_prompt_with_context(
+    query: str,
+    chunks: List[Tuple[str, str, float]],
+    conversation_history: List[dict] = None,
+    use_general_knowledge: bool = False
+) -> Tuple[str, List[str]]:
+    """
+    Build prompt with retrieved chunks or general knowledge fallback.
+
+    Returns: (prompt, list of doc names for citation validation)
+    """
+    # Build conversation history (last 10 messages)
+    history_str = ""
+    if conversation_history:
+        history_parts = []
+        for msg in conversation_history[-10:]:
+            role = "User" if msg["role"] == "user" else "Assistant"
+            history_parts.append(f"{role}: {msg['content']}")
+        history_str = "\n".join(history_parts)
+
+    # GENERAL KNOWLEDGE MODE
+    if use_general_knowledge or not chunks:
+        prompt = f"""You are Klyra, a helpful AI assistant.
+
+INSTRUCTIONS:
+- Answer using your general knowledge
+- Be helpful and informative
+- This is NOT based on company documents
+
+{f"PREVIOUS CONVERSATION:{chr(10)}{history_str}{chr(10)}{chr(10)}" if history_str else ""}User: {query}
+
+Klyra (Note: This answer is based on general knowledge, not company documents):"""
+        return prompt, []
+
+    # DOCUMENT-BASED MODE
+    # Build context with section info for citations
+    context_parts = []
+    doc_names = set()
+
+    for doc_name, chunk_text, score in chunks:
+        section = extract_section_from_chunk(chunk_text)
+        doc_names.add(doc_name)
+
+        # Get content after the header line
+        content_lines = chunk_text.split('\n')
+        if len(content_lines) > 1 and ' > ' in content_lines[0]:
+            content = '\n'.join(content_lines[1:]).strip()
+        else:
+            content = chunk_text.strip()
+
+        if section:
+            context_parts.append(f"[{doc_name}, {section}]\n{content}")
+        else:
+            context_parts.append(f"[{doc_name}]\n{content}")
+
+    context_str = "\n\n---\n\n".join(context_parts)
+
+    prompt = f"""You are Klyra, a helpful AI assistant.
+
+INSTRUCTIONS:
+1. Answer using the DOCUMENTS below when they contain relevant information
+2. For questions not covered in documents, use your general knowledge and say "Based on general knowledge: ..."
+3. When using document info, end with: Sources: [document name, section]
+4. Be direct and helpful. List ALL items when asked about lists.
+5. NEVER make up company information - only use what's in the documents
+
+{f"PREVIOUS CONVERSATION:{chr(10)}{history_str}{chr(10)}{chr(10)}" if history_str else ""}DOCUMENTS:
+{context_str}
+
+---
+
+User: {query}
+
+Klyra:"""
+
+    return prompt, list(doc_names)
+
+
 async def query_with_rag(query: str, conversation_history: List[dict] = None) -> Tuple[str, List[str]]:
     """
-    Main RAG entry point - uses simple approach (include all documents).
+    Main RAG entry point.
 
-    Returns: (prompt, provided_doc_names)
+    Uses semantic search to find relevant chunks, with transparent fallback
+    to general knowledge when no relevant documents are found.
+
+    Scales to hundreds of documents (uses search, not include-all).
     """
-    return await query_with_rag_simple(query, conversation_history)
+    logger.info(f"RAG query: '{query[:50]}...'")
+    logger.info(f"Conversation history: {len(conversation_history) if conversation_history else 0} messages")
+
+    # Log conversation for debugging
+    if conversation_history:
+        for i, msg in enumerate(conversation_history[-10:]):
+            logger.info(f"  [{i}] {msg['role']}: {msg['content'][:50]}...")
+
+    # Check if there are any documents at all
+    total_chunks = collection.count()
+    if total_chunks == 0:
+        logger.info("No documents in database, using general knowledge")
+        return build_prompt_with_context(query, [], conversation_history, use_general_knowledge=True)
+
+    # Search for relevant chunks (semantic + keyword hybrid)
+    chunks = await search_similar_chunks(query, top_k=MAX_CONTEXT_CHUNKS)
+
+    # Log search results
+    if chunks:
+        logger.info(f"Found {len(chunks)} chunks:")
+        for doc, text, score in chunks:
+            logger.info(f"  - {doc} (score={score:.3f}): {text[:60]}...")
+
+    # Filter by relevance threshold
+    # 0.5 = moderately similar, filters out irrelevant chunks
+    RELEVANCE_THRESHOLD = 0.5
+    relevant_chunks = [(doc, text, score) for doc, text, score in chunks if score >= RELEVANCE_THRESHOLD]
+
+    if not relevant_chunks and chunks:
+        logger.info(f"No chunks above threshold {RELEVANCE_THRESHOLD}, falling back to general knowledge")
+        # Still show the best scores for debugging
+        best_score = max(score for _, _, score in chunks) if chunks else 0
+        logger.info(f"Best score was {best_score:.3f}")
+
+    if relevant_chunks:
+        logger.info(f"Using {len(relevant_chunks)} relevant chunks (score >= {RELEVANCE_THRESHOLD})")
+
+    # Build prompt - use general knowledge mode if no relevant chunks
+    use_general = len(relevant_chunks) == 0
+    prompt, doc_names = build_prompt_with_context(
+        query,
+        relevant_chunks,
+        conversation_history,
+        use_general_knowledge=use_general
+    )
+
+    return prompt, doc_names
