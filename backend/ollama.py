@@ -8,7 +8,7 @@ async def generate_text(
     model: str = None,
     stream: bool = True,
     temperature: float = 0.7,
-    num_ctx: int = 4096
+    num_ctx: int = 16384
 ) -> AsyncGenerator[str, None]:
     """Generate text using Ollama API with streaming."""
     model = model or settings.OLLAMA_MODEL
@@ -41,7 +41,7 @@ async def generate_text_sync(
     prompt: str,
     model: str = None,
     temperature: float = 0.7,
-    num_ctx: int = 4096
+    num_ctx: int = 16384
 ) -> str:
     """Generate text without streaming."""
     model = model or settings.OLLAMA_MODEL
