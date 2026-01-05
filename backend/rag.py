@@ -48,6 +48,15 @@ def extract_text_from_pdf(file_path: str) -> str:
         page_text = page.extract_text()
         if page_text:
             text += page_text + "\n"
+
+    # Clean up common PDF extraction issues
+    # 1. Collapse multiple spaces into single space
+    text = re.sub(r' +', ' ', text)
+    # 2. Fix spaces around newlines
+    text = re.sub(r' *\n *', '\n', text)
+    # 3. Collapse multiple newlines
+    text = re.sub(r'\n{3,}', '\n\n', text)
+
     return text.strip()
 
 
@@ -924,8 +933,8 @@ async def query_with_rag(query: str, conversation_history: List[dict] = None) ->
             logger.info(f"  - {doc} (score={score:.3f}): {text[:60]}...")
 
     # Filter by relevance threshold
-    # 0.65 = moderately-high similarity, filters out loosely related chunks
-    RELEVANCE_THRESHOLD = 0.65
+    # 0.60 = good similarity, balances precision with recall
+    RELEVANCE_THRESHOLD = 0.60
     relevant_chunks = [(doc, text, score) for doc, text, score in chunks if score >= RELEVANCE_THRESHOLD]
 
     if not relevant_chunks and chunks:
