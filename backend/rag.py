@@ -50,12 +50,14 @@ def extract_text_from_pdf(file_path: str) -> str:
             text += page_text + "\n"
 
     # Clean up common PDF extraction issues
-    # 1. Collapse multiple spaces into single space
+    # 1. Replace single newlines with spaces (preserves paragraphs marked by double newlines)
+    text = re.sub(r'(?<!\n)\n(?!\n)', ' ', text)
+    # 2. Collapse multiple spaces into single space
     text = re.sub(r' +', ' ', text)
-    # 2. Fix spaces around newlines
+    # 3. Collapse multiple newlines into double newline (paragraph break)
+    text = re.sub(r'\n{2,}', '\n\n', text)
+    # 4. Clean up spaces around newlines
     text = re.sub(r' *\n *', '\n', text)
-    # 3. Collapse multiple newlines
-    text = re.sub(r'\n{3,}', '\n\n', text)
 
     return text.strip()
 
