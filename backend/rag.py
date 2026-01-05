@@ -614,11 +614,16 @@ def match_response_to_sources(response: str, chunks: List[Tuple[str, str, float]
         overlap_count = len(overlap)
 
         # Only count if meaningful overlap (not just common words)
+        # Includes generic words AND Klyra-specific terms that appear in every doc
         common_words = {'the', 'and', 'for', 'are', 'but', 'not', 'you', 'all', 'can', 'had',
                        'her', 'was', 'one', 'our', 'out', 'has', 'have', 'been', 'will', 'your',
                        'from', 'they', 'been', 'have', 'this', 'that', 'with', 'what', 'when',
                        'where', 'which', 'their', 'there', 'these', 'those', 'would', 'could',
-                       'should', 'about', 'into', 'more', 'some', 'such', 'than', 'then', 'them'}
+                       'should', 'about', 'into', 'more', 'some', 'such', 'than', 'then', 'them',
+                       # Klyra-specific terms that appear in ALL docs
+                       'klyra', 'labs', 'data', 'security', 'business', 'information',
+                       'system', 'systems', 'solution', 'solutions', 'team', 'company',
+                       'documents', 'document', 'knowledge', 'secure', 'private', 'privacy'}
         meaningful_overlap = overlap - common_words
 
         if len(meaningful_overlap) >= min_overlap:
@@ -632,12 +637,13 @@ def match_response_to_sources(response: str, chunks: List[Tuple[str, str, float]
         sorted_docs = sorted(doc_overlap_scores.items(), key=lambda x: x[1], reverse=True)
         top_score = sorted_docs[0][1]
 
-        # Only cite docs with at least 50% of the top score's overlap
-        # This prevents citing docs that only match on generic terms
-        threshold = top_score * 0.5
+        # Only cite docs with at least 80% of the top score's overlap
+        # This ensures we only cite the primary source(s), not docs
+        # that happen to share generic company terminology
+        threshold = top_score * 0.8
         matched_docs = [doc for doc, score in sorted_docs if score >= threshold]
 
-        logger.info(f"Top score: {top_score}, threshold: {threshold}")
+        logger.info(f"Top score: {top_score}, threshold (80%): {threshold}")
         for doc, score in sorted_docs:
             logger.info(f"  {doc}: {score} {'✓' if score >= threshold else '✗'}")
 
