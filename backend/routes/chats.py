@@ -9,7 +9,7 @@ from database import get_db
 from models import Chat, Message, MessageRole, Log
 from schemas import ChatCreate, ChatResponse, ChatListResponse, MessageCreate, MessageResponse
 from auth import get_current_user, CurrentUser
-from rag import query_with_rag, process_citations
+from rag import query_with_rag, match_response_to_sources
 from ollama import generate_text
 
 router = APIRouter(prefix="/api/chats", tags=["chats"])
@@ -180,8 +180,8 @@ async def send_message(
     db.commit()
 
     # Build RAG prompt with conversation history
-    # provided_docs is the list of documents that were included in the prompt
-    prompt, provided_docs = await query_with_rag(query_content, conversation_history)
+    # chunks contains the actual text for post-hoc citation matching
+    prompt, provided_docs, chunks = await query_with_rag(query_content, conversation_history)
 
     # Capture user message ID for returning to frontend
     user_message_id = user_message.id
@@ -196,8 +196,8 @@ async def send_message(
                 # Send token as SSE
                 yield f"data: {json.dumps({'token': token})}\n\n"
 
-            # Process citations: validate, normalize, strip invalid ones
-            processed_response, valid_sources = process_citations(full_response, provided_docs)
+            # Match response text to chunks to determine correct citations
+            processed_response, valid_sources = match_response_to_sources(full_response, chunks)
 
             # Use a new session for saving (original may be closed)
             from database import SessionLocal
