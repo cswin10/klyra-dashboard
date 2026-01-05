@@ -203,11 +203,20 @@ async def process_document(
 
     for i, chunk in enumerate(chunks):
         chunk_id = f"{document_id}_chunk_{i}"
-        embedding = await generate_embedding(chunk)
+
+        # Create a clean document title for embedding context
+        # Remove file extension and clean up the name
+        doc_title = file_name.rsplit('.', 1)[0]  # Remove extension
+        doc_title = doc_title.replace('-', ' ').replace('_', ' ')  # Clean separators
+
+        # Create embedding text with document context
+        # This helps semantic search match queries about document topics
+        embedding_text = f"[From: {doc_title}]\n{chunk}"
+        embedding = await generate_embedding(embedding_text)
 
         ids.append(chunk_id)
         embeddings.append(embedding)
-        documents.append(chunk)
+        documents.append(chunk)  # Store original chunk for display
         metadatas.append({
             "document_id": document_id,
             "document_name": file_name,
@@ -272,6 +281,10 @@ def expand_query(query: str) -> str:
     # Klyra Box specific
     if "klyra box" in query_lower or "hardware" in query_lower:
         expansions.append("Klyra Box hardware Intel NUC specifications")
+
+    # Sales/pitch queries
+    if any(term in query_lower for term in ["pitch", "sales", "sell", "script", "opening line", "talk track"]):
+        expansions.append("pitch script sales presentation opening talk track objections")
 
     if expansions:
         expanded = f"{query} {' '.join(expansions)}"
