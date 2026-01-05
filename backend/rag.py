@@ -566,6 +566,82 @@ def process_citations(response: str, provided_docs: List[str]) -> Tuple[str, Lis
     return cleaned_response, valid_citations
 
 
+def match_response_to_sources(response: str, chunks: List[Tuple[str, str, float]], min_overlap: int = 3) -> Tuple[str, List[str]]:
+    """
+    Match LLM response text against retrieved chunks to determine which docs were actually used.
+
+    Instead of trusting the LLM to cite correctly, we check which chunks
+    have significant text overlap with the response.
+
+    Args:
+        response: The LLM's response text
+        chunks: List of (doc_name, chunk_text, score) tuples
+        min_overlap: Minimum number of matching words to consider a match
+
+    Returns: (cleaned_response, list of doc names that contributed)
+    """
+    if not response or not chunks:
+        return response, []
+
+    # Strip any citations the LLM may have added (we'll add correct ones)
+    citation_patterns = [
+        r'\n*Sources?:\s*\[?[^\]]+\]?\s*$',
+        r'\n*Sources?:\s*[^\n]+$',
+    ]
+    cleaned_response = response
+    for pattern in citation_patterns:
+        cleaned_response = re.sub(pattern, '', cleaned_response, flags=re.IGNORECASE | re.MULTILINE)
+    cleaned_response = cleaned_response.rstrip()
+
+    # Tokenize response into words (lowercase, alphanumeric only)
+    response_words = set(re.findall(r'\b[a-z0-9]{3,}\b', response.lower()))
+
+    # Track which docs have significant overlap
+    doc_overlap_scores = {}
+
+    for doc_name, chunk_text, score in chunks:
+        # Get content words from chunk (skip header line if present)
+        chunk_lines = chunk_text.split('\n')
+        if chunk_lines and ' > ' in chunk_lines[0]:
+            content = '\n'.join(chunk_lines[1:])
+        else:
+            content = chunk_text
+
+        chunk_words = set(re.findall(r'\b[a-z0-9]{3,}\b', content.lower()))
+
+        # Calculate overlap
+        overlap = response_words & chunk_words
+        overlap_count = len(overlap)
+
+        # Only count if meaningful overlap (not just common words)
+        common_words = {'the', 'and', 'for', 'are', 'but', 'not', 'you', 'all', 'can', 'had',
+                       'her', 'was', 'one', 'our', 'out', 'has', 'have', 'been', 'will', 'your',
+                       'from', 'they', 'been', 'have', 'this', 'that', 'with', 'what', 'when',
+                       'where', 'which', 'their', 'there', 'these', 'those', 'would', 'could',
+                       'should', 'about', 'into', 'more', 'some', 'such', 'than', 'then', 'them'}
+        meaningful_overlap = overlap - common_words
+
+        if len(meaningful_overlap) >= min_overlap:
+            if doc_name not in doc_overlap_scores:
+                doc_overlap_scores[doc_name] = 0
+            doc_overlap_scores[doc_name] += len(meaningful_overlap)
+            logger.info(f"Citation match: {doc_name} has {len(meaningful_overlap)} meaningful overlapping words")
+
+    # Get docs that contributed, sorted by overlap score
+    if doc_overlap_scores:
+        sorted_docs = sorted(doc_overlap_scores.items(), key=lambda x: x[1], reverse=True)
+        # Only include docs with significant contribution
+        matched_docs = [doc for doc, score in sorted_docs if score >= min_overlap]
+
+        if matched_docs:
+            cleaned_response += f"\n\nSources: {', '.join(matched_docs)}"
+            logger.info(f"Final citations: {matched_docs}")
+            return cleaned_response, matched_docs
+
+    logger.info("No significant text overlap found - no citations added")
+    return cleaned_response, []
+
+
 def get_all_document_content() -> List[Tuple[str, str]]:
     """Get ALL document content from ChromaDB."""
     if collection.count() == 0:
@@ -782,10 +858,9 @@ IDENTITY (only mention if DIRECTLY asked "who are you" or "who made you"):
 INSTRUCTIONS:
 1. Answer using the DOCUMENTS below when they contain relevant information
 2. For questions not covered in documents, use your general knowledge naturally
-3. When using document info, end with: Sources: [document name, section]
-4. Be direct, helpful, and conversational. List ALL items when asked about lists.
-5. NEVER make up company information - only use what's in the documents
-6. Do NOT add unnecessary sign-offs
+3. Be direct, helpful, and conversational. List ALL items when asked about lists.
+4. NEVER make up company information - only use what's in the documents
+5. Do NOT add "Sources:" - the system handles citations automatically
 
 {f"PREVIOUS CONVERSATION:{chr(10)}{history_str}{chr(10)}{chr(10)}" if history_str else ""}DOCUMENTS:
 {context_str}
@@ -799,7 +874,7 @@ Klyra:"""
     return prompt, list(doc_names)
 
 
-async def query_with_rag(query: str, conversation_history: List[dict] = None) -> Tuple[str, List[str]]:
+async def query_with_rag(query: str, conversation_history: List[dict] = None) -> Tuple[str, List[str], List[Tuple[str, str, float]]]:
     """
     Main RAG entry point.
 
@@ -807,6 +882,8 @@ async def query_with_rag(query: str, conversation_history: List[dict] = None) ->
     to general knowledge when no relevant documents are found.
 
     Scales to hundreds of documents (uses search, not include-all).
+
+    Returns: (prompt, doc_names, chunks) - chunks needed for post-hoc citation matching
     """
     logger.info(f"RAG query: '{query[:50]}...'")
     logger.info(f"Conversation history: {len(conversation_history) if conversation_history else 0} messages")
@@ -820,7 +897,8 @@ async def query_with_rag(query: str, conversation_history: List[dict] = None) ->
     total_chunks = collection.count()
     if total_chunks == 0:
         logger.info("No documents in database, using general knowledge")
-        return build_prompt_with_context(query, [], conversation_history, use_general_knowledge=True)
+        prompt, doc_names = build_prompt_with_context(query, [], conversation_history, use_general_knowledge=True)
+        return prompt, doc_names, []
 
     # Search for relevant chunks (semantic + keyword hybrid)
     chunks = await search_similar_chunks(query, top_k=MAX_CONTEXT_CHUNKS)
@@ -854,4 +932,4 @@ async def query_with_rag(query: str, conversation_history: List[dict] = None) ->
         use_general_knowledge=use_general
     )
 
-    return prompt, doc_names
+    return prompt, doc_names, relevant_chunks
