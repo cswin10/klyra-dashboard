@@ -924,8 +924,8 @@ async def query_with_rag(query: str, conversation_history: List[dict] = None) ->
             logger.info(f"  - {doc} (score={score:.3f}): {text[:60]}...")
 
     # Filter by relevance threshold
-    # 0.5 = moderately similar, filters out irrelevant chunks
-    RELEVANCE_THRESHOLD = 0.5
+    # 0.65 = moderately-high similarity, filters out loosely related chunks
+    RELEVANCE_THRESHOLD = 0.65
     relevant_chunks = [(doc, text, score) for doc, text, score in chunks if score >= RELEVANCE_THRESHOLD]
 
     if not relevant_chunks and chunks:
