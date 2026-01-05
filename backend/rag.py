@@ -630,8 +630,16 @@ def match_response_to_sources(response: str, chunks: List[Tuple[str, str, float]
     # Get docs that contributed, sorted by overlap score
     if doc_overlap_scores:
         sorted_docs = sorted(doc_overlap_scores.items(), key=lambda x: x[1], reverse=True)
-        # Only include docs with significant contribution
-        matched_docs = [doc for doc, score in sorted_docs if score >= min_overlap]
+        top_score = sorted_docs[0][1]
+
+        # Only cite docs with at least 50% of the top score's overlap
+        # This prevents citing docs that only match on generic terms
+        threshold = top_score * 0.5
+        matched_docs = [doc for doc, score in sorted_docs if score >= threshold]
+
+        logger.info(f"Top score: {top_score}, threshold: {threshold}")
+        for doc, score in sorted_docs:
+            logger.info(f"  {doc}: {score} {'✓' if score >= threshold else '✗'}")
 
         if matched_docs:
             cleaned_response += f"\n\nSources: {', '.join(matched_docs)}"
