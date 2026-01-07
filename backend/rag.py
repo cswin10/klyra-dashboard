@@ -462,8 +462,12 @@ def expand_query(query: str) -> str:
     if "klyra box" in query_lower or "hardware" in query_lower:
         expansions.append("Klyra Box hardware Intel NUC specifications")
 
-    # Sales/pitch queries
-    if any(term in query_lower for term in ["pitch", "sales", "sell", "script", "opening line", "talk track"]):
+    # Sales/pitch queries - exclude product names like "Salesforce"
+    # Use word boundary check for "sales" to avoid matching "Salesforce"
+    import re
+    sales_terms = ["pitch", "sell", "script", "opening line", "talk track"]
+    has_sales_word = re.search(r'\bsales\b', query_lower) and "salesforce" not in query_lower
+    if has_sales_word or any(term in query_lower for term in sales_terms):
         expansions.append("pitch script sales presentation opening talk track objections")
 
     if expansions:

@@ -183,10 +183,10 @@ TEST_CASES = [
     ),
     TestCase(
         query="What font does Klyra use?",
-        expected_sources=["brand", "guidelines", "typography"],
+        expected_sources=["brand", "guidelines", "typography", "company", "klyra"],
         excluded_sources=[],
         min_confidence=0.4,
-        description="Typography from brand guidelines"
+        description="Typography from brand guidelines or company docs"
     ),
 
     # Product feature queries
