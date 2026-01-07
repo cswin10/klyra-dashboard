@@ -1,7 +1,7 @@
 import os
 import asyncio
 from pathlib import Path
-from typing import List, Tuple, Optional
+from typing import List, Tuple, Optional, Dict
 import chromadb
 from chromadb.config import Settings as ChromaSettings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
@@ -16,6 +16,21 @@ logger = get_logger("rag")
 
 # Maximum number of chunks to include in LLM context (prevents context overflow)
 MAX_CONTEXT_CHUNKS = 8
+
+# Confidence thresholds
+HIGH_CONFIDENCE_THRESHOLD = 0.75  # Very confident in retrieval
+MEDIUM_CONFIDENCE_THRESHOLD = 0.60  # Reasonably confident
+LOW_CONFIDENCE_THRESHOLD = 0.45  # Low confidence, add disclaimer
+
+# Document categories for filtering
+DOCUMENT_CATEGORIES = {
+    "sales": ["pitch", "script", "sales", "objection", "closing", "prospect"],
+    "legal": ["compliance", "regulation", "sra", "gdpr", "contract", "terms"],
+    "technical": ["hardware", "specs", "technical", "system", "install", "setup"],
+    "hr": ["onboarding", "process", "policy", "employee", "handbook"],
+    "case_study": ["case", "study", "client", "success", "testimonial"],
+    "company": ["about", "company", "team", "founder", "mission", "vision"]
+}
 
 # Initialize ChromaDB client
 # Use HTTP client when CHROMA_HOST is set (Docker/production), otherwise local persistent client
@@ -246,6 +261,171 @@ def delete_document_chunks(document_id: str) -> None:
         collection.delete(ids=results["ids"])
 
 
+def detect_category(text: str) -> str:
+    """
+    Auto-detect document category based on content and filename.
+    Returns the best matching category or 'general'.
+    """
+    text_lower = text.lower()
+
+    category_scores = {}
+    for category, keywords in DOCUMENT_CATEGORIES.items():
+        score = sum(1 for kw in keywords if kw in text_lower)
+        if score > 0:
+            category_scores[category] = score
+
+    if category_scores:
+        return max(category_scores, key=category_scores.get)
+    return "general"
+
+
+def detect_query_category(query: str) -> Optional[str]:
+    """
+    Detect what category a query is asking about.
+    Returns category name or None if general/unclear.
+    """
+    query_lower = query.lower()
+
+    # Direct category detection
+    category_signals = {
+        "sales": ["pitch", "sell", "sales", "close", "objection", "prospect", "deal"],
+        "legal": ["compliance", "regulation", "legal", "sra", "gdpr", "contract"],
+        "technical": ["hardware", "specs", "technical", "install", "system", "gpu"],
+        "hr": ["onboarding", "onboard", "process", "policy", "employee"],
+        "case_study": ["case study", "client success", "testimonial", "example"],
+        "company": ["who works", "team", "founder", "ceo", "about klyra", "company"]
+    }
+
+    for category, signals in category_signals.items():
+        if any(signal in query_lower for signal in signals):
+            return category
+
+    return None
+
+
+def calculate_confidence(chunks: List[Tuple[str, str, float]]) -> Tuple[float, str]:
+    """
+    Calculate confidence score based on retrieval quality.
+
+    Returns: (confidence_score, confidence_level)
+    - confidence_score: 0.0 to 1.0
+    - confidence_level: "high", "medium", "low", or "none"
+    """
+    if not chunks:
+        return 0.0, "none"
+
+    scores = [score for _, _, score in chunks]
+    top_score = max(scores)
+    avg_score = sum(scores) / len(scores)
+
+    # Check score distribution - if top scores are close, more confident
+    top_3_scores = sorted(scores, reverse=True)[:3]
+    score_variance = max(top_3_scores) - min(top_3_scores) if len(top_3_scores) > 1 else 0
+
+    # Calculate confidence based on:
+    # 1. Top score (higher = better)
+    # 2. Score clustering (if top scores are similar, more confident about topic)
+    # 3. Number of relevant results
+
+    if top_score >= HIGH_CONFIDENCE_THRESHOLD:
+        confidence = 0.9 + (top_score - HIGH_CONFIDENCE_THRESHOLD) * 0.4
+        level = "high"
+    elif top_score >= MEDIUM_CONFIDENCE_THRESHOLD:
+        confidence = 0.6 + (top_score - MEDIUM_CONFIDENCE_THRESHOLD) * 2
+        level = "medium"
+    elif top_score >= LOW_CONFIDENCE_THRESHOLD:
+        confidence = 0.3 + (top_score - LOW_CONFIDENCE_THRESHOLD) * 2
+        level = "low"
+    else:
+        confidence = top_score
+        level = "none"
+
+    # Boost confidence if multiple relevant chunks found
+    relevant_count = sum(1 for s in scores if s >= MEDIUM_CONFIDENCE_THRESHOLD)
+    if relevant_count >= 3:
+        confidence = min(1.0, confidence + 0.1)
+
+    logger.info(f"Confidence: {confidence:.2f} ({level}) - top={top_score:.3f}, avg={avg_score:.3f}, relevant_count={relevant_count}")
+
+    return min(1.0, confidence), level
+
+
+def detect_ambiguous_query(query: str, chunks: List[Tuple[str, str, float]]) -> Optional[Dict]:
+    """
+    Detect if a query is ambiguous (multiple documents match similarly).
+
+    Returns dict with clarification info if ambiguous, None otherwise.
+    """
+    if not chunks or len(chunks) < 2:
+        return None
+
+    # Group chunks by document
+    doc_scores: Dict[str, List[float]] = {}
+    for doc_name, _, score in chunks:
+        if doc_name not in doc_scores:
+            doc_scores[doc_name] = []
+        doc_scores[doc_name].append(score)
+
+    # Get best score per document
+    doc_best_scores = {doc: max(scores) for doc, scores in doc_scores.items()}
+
+    if len(doc_best_scores) < 2:
+        return None
+
+    # Sort by score
+    sorted_docs = sorted(doc_best_scores.items(), key=lambda x: x[1], reverse=True)
+
+    # Check if top 2-3 docs have very similar scores (within 10%)
+    top_score = sorted_docs[0][1]
+    similar_docs = [(doc, score) for doc, score in sorted_docs if score >= top_score * 0.9]
+
+    if len(similar_docs) >= 2 and top_score >= LOW_CONFIDENCE_THRESHOLD:
+        # Query is ambiguous - multiple docs match equally well
+        logger.info(f"Ambiguous query detected: {len(similar_docs)} docs with similar scores")
+        return {
+            "is_ambiguous": True,
+            "matching_docs": [doc for doc, _ in similar_docs[:3]],
+            "top_score": top_score
+        }
+
+    return None
+
+
+def get_low_confidence_disclaimer(confidence_level: str, query: str) -> Optional[str]:
+    """
+    Generate a disclaimer for low-confidence responses.
+    """
+    if confidence_level == "none":
+        return "\n\n---\n*I couldn't find specific information about this in the uploaded documents. This answer is based on general knowledge.*"
+    elif confidence_level == "low":
+        return "\n\n---\n*Note: I found some related information, but I'm not fully confident this answers your question. You may want to check the source document directly or rephrase your question.*"
+    return None
+
+
+def get_ambiguity_clarification(ambiguous_docs: List[str], query: str) -> Optional[str]:
+    """
+    Generate a clarification request when multiple documents match equally.
+    """
+    if not ambiguous_docs or len(ambiguous_docs) < 2:
+        return None
+
+    # Clean up document names for display
+    clean_names = []
+    for doc in ambiguous_docs[:3]:
+        # Remove file extension and clean up
+        name = doc.rsplit('.', 1)[0]
+        name = name.replace('-', ' ').replace('_', ' ')
+        clean_names.append(name)
+
+    docs_list = ", ".join(f"**{name}**" for name in clean_names[:-1])
+    if len(clean_names) > 1:
+        docs_list += f" and **{clean_names[-1]}**"
+    else:
+        docs_list = f"**{clean_names[0]}**"
+
+    return f"\n\n---\n*I found relevant information in multiple documents ({docs_list}). If you need information from a specific document, please mention it in your question.*"
+
+
 def expand_query(query: str) -> str:
     """
     Expand a query with related terms to improve semantic search matching.
@@ -296,22 +476,38 @@ def expand_query(query: str) -> str:
 
 def keyword_search_chunks(query: str, top_k: int = 5) -> List[Tuple[str, str, float]]:
     """
-    Simple keyword-based search to catch exact matches semantic search might miss.
+    Enhanced keyword-based search with phrase matching and TF-IDF style weighting.
     Returns list of tuples: (document_name, chunk_text, score)
     """
-    import re
     query_lower = query.lower()
+
+    # Extract important phrases (2-3 word combinations)
+    important_phrases = []
+    phrase_patterns = [
+        r'opening line', r'sales pitch', r'pitch script', r'case study',
+        r'who works', r'who is', r'how do', r'how to', r'what is',
+        r'klyra box', r'klyra labs', r'closing technique', r'objection handling'
+    ]
+    for pattern in phrase_patterns:
+        if pattern in query_lower:
+            important_phrases.append(pattern)
 
     # Extract keywords from query
     words = re.findall(r'\b\w+\b', query_lower)
-    stop_words = {'what', 'who', 'where', 'when', 'how', 'why', 'is', 'are', 'the', 'a', 'an', 'does', 'do', 'at', 'in', 'on', 'for', 'to', 'of', 'and', 'or', 'me', 'tell', 'about'}
+    stop_words = {'what', 'who', 'where', 'when', 'how', 'why', 'is', 'are', 'the', 'a', 'an',
+                  'does', 'do', 'at', 'in', 'on', 'for', 'to', 'of', 'and', 'or', 'me', 'tell',
+                  'about', 'can', 'could', 'would', 'should', 'our', 'my', 'your', 'i', 'we'}
     keywords = [w for w in words if w not in stop_words and len(w) > 2]
 
-    # Add related terms for common queries
+    # Add high-value keywords based on query type
     if any(term in query_lower for term in ["who works", "team", "employees", "staff", "people"]):
-        keywords.extend(["team", "founder", "ceo", "cto", "head", "charlie", "joe"])
+        keywords.extend(["team", "founder", "ceo", "cto", "head", "charlie", "joe", "jack", "kieren"])
+    if any(term in query_lower for term in ["pitch", "sales", "sell", "script"]):
+        keywords.extend(["pitch", "script", "objection", "closing", "prospect"])
+    if any(term in query_lower for term in ["hardware", "specs", "technical", "gpu"]):
+        keywords.extend(["gpu", "rtx", "hardware", "vram", "server"])
 
-    if not keywords:
+    if not keywords and not important_phrases:
         return []
 
     # Get all chunks
@@ -322,13 +518,44 @@ def keyword_search_chunks(query: str, top_k: int = 5) -> List[Tuple[str, str, fl
     matches = []
     for i, doc in enumerate(all_chunks["documents"]):
         doc_lower = doc.lower()
-        match_count = sum(1 for kw in keywords if kw in doc_lower)
-        if match_count > 0:
-            metadata = all_chunks["metadatas"][i]
-            score = match_count / len(keywords)
-            matches.append((metadata["document_name"], doc, score, match_count))
+        metadata = all_chunks["metadatas"][i]
+        doc_name_lower = metadata["document_name"].lower()
 
-    matches.sort(key=lambda x: (x[3], x[2]), reverse=True)
+        score = 0.0
+        match_details = []
+
+        # Phrase matching (highest weight - exact phrase matches are very valuable)
+        phrase_matches = sum(1 for phrase in important_phrases if phrase in doc_lower)
+        if phrase_matches > 0:
+            score += phrase_matches * 0.4  # High weight for phrase matches
+            match_details.append(f"phrases:{phrase_matches}")
+
+        # Keyword matching in content
+        keyword_matches = sum(1 for kw in keywords if kw in doc_lower)
+        if keyword_matches > 0:
+            # TF-IDF style: more keywords matched = higher score, but diminishing returns
+            keyword_score = min(keyword_matches / len(keywords), 1.0) * 0.3
+            score += keyword_score
+            match_details.append(f"keywords:{keyword_matches}/{len(keywords)}")
+
+        # Document name matching (boost if query keywords appear in doc name)
+        name_matches = sum(1 for kw in keywords if kw in doc_name_lower)
+        if name_matches > 0:
+            score += name_matches * 0.15  # Bonus for matching document name
+            match_details.append(f"name:{name_matches}")
+
+        # Category matching (if document category matches query intent)
+        doc_category = metadata.get("category", "general")
+        query_category = detect_query_category(query)
+        if query_category and doc_category == query_category:
+            score += 0.1  # Small boost for category match
+            match_details.append(f"category:{doc_category}")
+
+        if score > 0:
+            logger.debug(f"Keyword match: {metadata['document_name']} score={score:.3f} ({', '.join(match_details)})")
+            matches.append((metadata["document_name"], doc, score, sum([phrase_matches * 3, keyword_matches, name_matches])))
+
+    matches.sort(key=lambda x: (x[2], x[3]), reverse=True)
     return [(m[0], m[1], m[2]) for m in matches[:top_k]]
 
 
@@ -912,7 +1139,7 @@ Klyra:"""
     return prompt, list(doc_names)
 
 
-async def query_with_rag(query: str, conversation_history: List[dict] = None) -> Tuple[str, List[str], List[Tuple[str, str, float]]]:
+async def query_with_rag(query: str, conversation_history: List[dict] = None) -> Tuple[str, List[str], List[Tuple[str, str, float]], Dict]:
     """
     Main RAG entry point.
 
@@ -921,10 +1148,30 @@ async def query_with_rag(query: str, conversation_history: List[dict] = None) ->
 
     Scales to hundreds of documents (uses search, not include-all).
 
-    Returns: (prompt, doc_names, chunks) - chunks needed for post-hoc citation matching
+    Returns: (prompt, doc_names, chunks, metadata)
+    - prompt: The constructed prompt for the LLM
+    - doc_names: List of document names in context
+    - chunks: Retrieved chunks for post-hoc citation matching
+    - metadata: Dict with confidence_score, confidence_level, is_ambiguous, etc.
     """
     logger.info(f"RAG query: '{query[:50]}...'")
     logger.info(f"Conversation history: {len(conversation_history) if conversation_history else 0} messages")
+
+    # Initialize metadata
+    metadata = {
+        "confidence_score": 0.0,
+        "confidence_level": "none",
+        "is_ambiguous": False,
+        "ambiguous_docs": [],
+        "query_category": None,
+        "used_general_knowledge": False
+    }
+
+    # Detect query category for logging/analytics
+    query_category = detect_query_category(query)
+    metadata["query_category"] = query_category
+    if query_category:
+        logger.info(f"Query category detected: {query_category}")
 
     # Log conversation for debugging
     if conversation_history:
@@ -936,7 +1183,8 @@ async def query_with_rag(query: str, conversation_history: List[dict] = None) ->
     if total_chunks == 0:
         logger.info("No documents in database, using general knowledge")
         prompt, doc_names = build_prompt_with_context(query, [], conversation_history, use_general_knowledge=True)
-        return prompt, doc_names, []
+        metadata["used_general_knowledge"] = True
+        return prompt, doc_names, [], metadata
 
     # Search for relevant chunks (semantic + keyword hybrid)
     chunks = await search_similar_chunks(query, top_k=MAX_CONTEXT_CHUNKS)
@@ -946,6 +1194,17 @@ async def query_with_rag(query: str, conversation_history: List[dict] = None) ->
         logger.info(f"Found {len(chunks)} chunks:")
         for doc, text, score in chunks:
             logger.info(f"  - {doc} (score={score:.3f}): {text[:60]}...")
+
+    # Calculate confidence BEFORE filtering
+    confidence_score, confidence_level = calculate_confidence(chunks)
+    metadata["confidence_score"] = confidence_score
+    metadata["confidence_level"] = confidence_level
+
+    # Check for ambiguous queries
+    ambiguity = detect_ambiguous_query(query, chunks)
+    if ambiguity:
+        metadata["is_ambiguous"] = True
+        metadata["ambiguous_docs"] = ambiguity["matching_docs"]
 
     # Filter by relevance threshold
     # 0.60 = good similarity, balances precision with recall
@@ -963,6 +1222,8 @@ async def query_with_rag(query: str, conversation_history: List[dict] = None) ->
 
     # Build prompt - use general knowledge mode if no relevant chunks
     use_general = len(relevant_chunks) == 0
+    metadata["used_general_knowledge"] = use_general
+
     prompt, doc_names = build_prompt_with_context(
         query,
         relevant_chunks,
@@ -970,4 +1231,4 @@ async def query_with_rag(query: str, conversation_history: List[dict] = None) ->
         use_general_knowledge=use_general
     )
 
-    return prompt, doc_names, relevant_chunks
+    return prompt, doc_names, relevant_chunks, metadata
