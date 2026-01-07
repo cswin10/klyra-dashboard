@@ -442,8 +442,8 @@ def expand_query(query: str) -> str:
     if any(term in query_lower for term in ["ceo", "cto", "founder", "leader", "management"]):
         expansions.append("founding team CEO CTO founder leadership executive")
 
-    # About/company queries
-    if any(term in query_lower for term in ["about", "what is", "what does", "company"]):
+    # About/company queries - only expand when asking about Klyra specifically
+    if any(term in query_lower for term in ["about klyra", "what is klyra", "what does klyra", "klyra company"]):
         expansions.append("about company mission vision overview")
 
     # Contact queries
@@ -1207,8 +1207,8 @@ async def query_with_rag(query: str, conversation_history: List[dict] = None) ->
         metadata["ambiguous_docs"] = ambiguity["matching_docs"]
 
     # Filter by relevance threshold
-    # 0.60 = good similarity, balances precision with recall
-    RELEVANCE_THRESHOLD = 0.60
+    # 0.55 = catches slightly lower matches while avoiding noise
+    RELEVANCE_THRESHOLD = 0.55
     relevant_chunks = [(doc, text, score) for doc, text, score in chunks if score >= RELEVANCE_THRESHOLD]
 
     if not relevant_chunks and chunks:
