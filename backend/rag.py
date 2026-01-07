@@ -434,13 +434,13 @@ def expand_query(query: str) -> str:
     query_lower = query.lower()
     expansions = []
 
-    # People/team related queries
-    if any(term in query_lower for term in ["who works", "who is at", "employees", "staff", "team"]):
-        expansions.append("founding team members employees staff founders")
+    # People/team related queries - expand broadly to catch all team sections
+    if any(term in query_lower for term in ["who works", "who is at", "employees", "staff", "team", "people"]):
+        expansions.append("team members employees staff founders advisors board directors personnel people roster")
 
     # Leadership queries
-    if any(term in query_lower for term in ["ceo", "cto", "founder", "leader", "management"]):
-        expansions.append("founding team CEO CTO founder leadership executive")
+    if any(term in query_lower for term in ["ceo", "cto", "founder", "leader", "management", "executive"]):
+        expansions.append("founding team CEO CTO founder leadership executive management board directors advisors")
 
     # About/company queries - only expand when asking about Klyra specifically
     if any(term in query_lower for term in ["about klyra", "what is klyra", "what does klyra", "klyra company"]):
@@ -474,6 +474,58 @@ def expand_query(query: str) -> str:
         expanded = f"{query} {' '.join(expansions)}"
         logger.info(f"Query expanded: '{query}' -> '{expanded}'")
         return expanded
+
+    return query
+
+
+def enhance_query_with_context(query: str, conversation_history: List[dict] = None) -> str:
+    """
+    Enhance a short/vague query using conversation context.
+
+    For example, if user asks "who is kieren" after discussing Klyra Labs,
+    this adds context like "kieren Klyra Labs" to improve search results.
+    """
+    if not conversation_history:
+        return query
+
+    query_lower = query.lower()
+    query_words = set(query_lower.split())
+
+    # Only enhance short/vague queries (less than 6 words, or asking about a person)
+    is_short_query = len(query_words) <= 6
+    is_person_query = any(term in query_lower for term in ["who is", "who's", "tell me about", "what about"])
+
+    if not (is_short_query or is_person_query):
+        return query
+
+    # Extract context entities from recent conversation
+    context_entities = set()
+
+    # Look at last 6 messages for context
+    recent_messages = conversation_history[-6:] if conversation_history else []
+
+    for msg in recent_messages:
+        content = msg.get("content", "").lower()
+
+        # Add "Klyra" context if mentioned
+        if "klyra" in content:
+            context_entities.add("Klyra Labs")
+
+        # Add specific document/entity mentions
+        if "thompson" in content:
+            context_entities.add("Thompson")
+        if "brand" in content or "color" in content or "colour" in content:
+            context_entities.add("brand guidelines")
+        if "script" in content or "pitch" in content:
+            context_entities.add("sales script")
+
+    # Don't duplicate if already in query
+    new_context = [e for e in context_entities if e.lower() not in query_lower]
+
+    if new_context:
+        enhanced = f"{query} {' '.join(new_context)}"
+        logger.info(f"Query enhanced with context: '{query}' -> '{enhanced}'")
+        return enhanced
 
     return query
 
@@ -1143,6 +1195,35 @@ Klyra:"""
     return prompt, list(doc_names)
 
 
+def is_user_provided_content(query: str) -> bool:
+    """
+    Detect if the query contains user-provided content that shouldn't be
+    matched against documents (e.g., pasted emails, articles, long text).
+
+    When users paste content for summarization/analysis, we shouldn't
+    cite our documents for that content.
+    """
+    query_lower = query.lower()
+    word_count = len(query.split())
+
+    # Long queries (>100 words) with summary-related keywords
+    summary_keywords = ["summarize", "summary", "summarise", "tldr", "key points",
+                       "main points", "break down", "explain this", "what does this mean"]
+    has_summary_keyword = any(kw in query_lower for kw in summary_keywords)
+
+    # Very long content (>150 words) is likely pasted content
+    if word_count > 150:
+        logger.info(f"Detected user-provided content: {word_count} words")
+        return True
+
+    # Medium-length content (>80 words) with summary keywords
+    if word_count > 80 and has_summary_keyword:
+        logger.info(f"Detected summary request with pasted content: {word_count} words")
+        return True
+
+    return False
+
+
 async def query_with_rag(query: str, conversation_history: List[dict] = None) -> Tuple[str, List[str], List[Tuple[str, str, float]], Dict]:
     """
     Main RAG entry point.
@@ -1168,8 +1249,18 @@ async def query_with_rag(query: str, conversation_history: List[dict] = None) ->
         "is_ambiguous": False,
         "ambiguous_docs": [],
         "query_category": None,
-        "used_general_knowledge": False
+        "used_general_knowledge": False,
+        "is_user_content": False
     }
+
+    # Check if query contains user-provided content (pasted emails, articles, etc.)
+    # These should use general knowledge, not document search
+    if is_user_provided_content(query):
+        logger.info("User-provided content detected, using general knowledge mode")
+        metadata["used_general_knowledge"] = True
+        metadata["is_user_content"] = True
+        prompt, doc_names = build_prompt_with_context(query, [], conversation_history, use_general_knowledge=True)
+        return prompt, doc_names, [], metadata
 
     # Detect query category for logging/analytics
     query_category = detect_query_category(query)
@@ -1190,8 +1281,21 @@ async def query_with_rag(query: str, conversation_history: List[dict] = None) ->
         metadata["used_general_knowledge"] = True
         return prompt, doc_names, [], metadata
 
+    # Enhance query with conversation context for better search
+    # e.g., "who is kieren" becomes "who is kieren Klyra Labs" if discussing Klyra
+    search_query = enhance_query_with_context(query, conversation_history)
+
+    # Determine how many chunks to retrieve
+    # Team/people queries need more chunks since members may be spread across sections
+    query_lower = query.lower()
+    is_team_query = any(term in query_lower for term in [
+        "who works", "who is at", "team", "employees", "staff", "people",
+        "everyone", "all the", "members", "roster"
+    ])
+    search_top_k = MAX_CONTEXT_CHUNKS * 2 if is_team_query else MAX_CONTEXT_CHUNKS
+
     # Search for relevant chunks (semantic + keyword hybrid)
-    chunks = await search_similar_chunks(query, top_k=MAX_CONTEXT_CHUNKS)
+    chunks = await search_similar_chunks(search_query, top_k=search_top_k)
 
     # Log search results
     if chunks:
