@@ -9,7 +9,7 @@ from database import get_db
 from models import Chat, Message, MessageRole, Log
 from schemas import ChatCreate, ChatResponse, ChatListResponse, MessageCreate, MessageResponse
 from auth import get_current_user, CurrentUser
-from rag import query_with_rag, match_response_to_sources
+from rag import query_with_rag, match_response_to_sources, get_low_confidence_disclaimer, get_ambiguity_clarification
 from ollama import generate_text
 
 router = APIRouter(prefix="/api/chats", tags=["chats"])
@@ -181,10 +181,16 @@ async def send_message(
 
     # Build RAG prompt with conversation history
     # chunks contains the actual text for post-hoc citation matching
-    prompt, provided_docs, chunks = await query_with_rag(query_content, conversation_history)
+    # metadata contains confidence scores and other info
+    prompt, provided_docs, chunks, rag_metadata = await query_with_rag(query_content, conversation_history)
 
     # Capture user message ID for returning to frontend
     user_message_id = user_message.id
+
+    # Capture metadata for use in stream
+    confidence_level = rag_metadata.get("confidence_level", "none")
+    is_ambiguous = rag_metadata.get("is_ambiguous", False)
+    ambiguous_docs = rag_metadata.get("ambiguous_docs", [])
 
     async def generate_stream():
         full_response = ""
@@ -198,6 +204,21 @@ async def send_message(
 
             # Match response text to chunks to determine correct citations
             processed_response, valid_sources = match_response_to_sources(full_response, chunks)
+
+            # Add low-confidence disclaimer if needed
+            disclaimer = get_low_confidence_disclaimer(confidence_level, query_content)
+            if disclaimer and not valid_sources:
+                # Only add disclaimer if no sources were matched (pure general knowledge)
+                processed_response += disclaimer
+                # Stream the disclaimer to the frontend
+                yield f"data: {json.dumps({'token': disclaimer})}\n\n"
+
+            # Add ambiguity clarification if multiple docs matched equally
+            if is_ambiguous and len(valid_sources) > 1:
+                ambiguity_note = get_ambiguity_clarification(ambiguous_docs, query_content)
+                if ambiguity_note:
+                    processed_response += ambiguity_note
+                    yield f"data: {json.dumps({'token': ambiguity_note})}\n\n"
 
             # Use a new session for saving (original may be closed)
             from database import SessionLocal
@@ -222,8 +243,8 @@ async def send_message(
                 stream_db.commit()
                 assistant_message_id = assistant_message.id
 
-            # Send completion signal with validated sources and message IDs
-            yield f"data: {json.dumps({'done': True, 'sources': valid_sources, 'user_message_id': user_message_id, 'assistant_message_id': assistant_message_id})}\n\n"
+            # Send completion signal with validated sources, message IDs, and confidence
+            yield f"data: {json.dumps({'done': True, 'sources': valid_sources, 'user_message_id': user_message_id, 'assistant_message_id': assistant_message_id, 'confidence': rag_metadata})}\n\n"
 
         except Exception as e:
             yield f"data: {json.dumps({'error': str(e)})}\n\n"

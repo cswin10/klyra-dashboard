@@ -8,7 +8,7 @@ from models import Document, DocumentStatus, DocumentCategory
 from schemas import DocumentResponse, DocumentVersionResponse
 from auth import get_current_user, CurrentUser
 from config import UPLOADS_DIR
-from rag import process_document, delete_document_chunks, search_similar_chunks, collection
+from rag import process_document, delete_document_chunks, search_similar_chunks, collection, detect_category
 from logging_config import get_logger
 
 logger = get_logger("documents")
@@ -102,15 +102,33 @@ async def upload_document(
             detail=f"File type not supported. Allowed types: {', '.join(ALLOWED_EXTENSIONS)}"
         )
 
-    # Validate category
-    try:
-        doc_category = DocumentCategory(category)
-    except ValueError:
-        doc_category = DocumentCategory.general
-
     # Read file content
     content = await file.read()
     file_size = len(content)
+
+    # Auto-detect category if not specified or set to "auto"
+    if category in ["auto", "general", ""]:
+        # Try to detect from filename first
+        detected = detect_category(file.filename)
+        if detected == "general":
+            # If filename didn't help, try content (for text files)
+            if file_ext in ["txt", "md"]:
+                try:
+                    text_preview = content[:2000].decode('utf-8', errors='ignore')
+                    detected = detect_category(text_preview)
+                except:
+                    pass
+        logger.info(f"Auto-detected category for '{file.filename}': {detected}")
+        try:
+            doc_category = DocumentCategory(detected)
+        except ValueError:
+            doc_category = DocumentCategory.general
+    else:
+        # Use provided category
+        try:
+            doc_category = DocumentCategory(category)
+        except ValueError:
+            doc_category = DocumentCategory.general
 
     # Create document record
     document = Document(
