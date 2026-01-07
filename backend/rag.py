@@ -434,13 +434,13 @@ def expand_query(query: str) -> str:
     query_lower = query.lower()
     expansions = []
 
-    # People/team related queries
-    if any(term in query_lower for term in ["who works", "who is at", "employees", "staff", "team"]):
-        expansions.append("founding team members employees staff founders")
+    # People/team related queries - expand broadly to catch all team sections
+    if any(term in query_lower for term in ["who works", "who is at", "employees", "staff", "team", "people"]):
+        expansions.append("team members employees staff founders advisors board directors personnel people roster")
 
     # Leadership queries
-    if any(term in query_lower for term in ["ceo", "cto", "founder", "leader", "management"]):
-        expansions.append("founding team CEO CTO founder leadership executive")
+    if any(term in query_lower for term in ["ceo", "cto", "founder", "leader", "management", "executive"]):
+        expansions.append("founding team CEO CTO founder leadership executive management board directors advisors")
 
     # About/company queries - only expand when asking about Klyra specifically
     if any(term in query_lower for term in ["about klyra", "what is klyra", "what does klyra", "klyra company"]):
@@ -1285,8 +1285,17 @@ async def query_with_rag(query: str, conversation_history: List[dict] = None) ->
     # e.g., "who is kieren" becomes "who is kieren Klyra Labs" if discussing Klyra
     search_query = enhance_query_with_context(query, conversation_history)
 
+    # Determine how many chunks to retrieve
+    # Team/people queries need more chunks since members may be spread across sections
+    query_lower = query.lower()
+    is_team_query = any(term in query_lower for term in [
+        "who works", "who is at", "team", "employees", "staff", "people",
+        "everyone", "all the", "members", "roster"
+    ])
+    search_top_k = MAX_CONTEXT_CHUNKS * 2 if is_team_query else MAX_CONTEXT_CHUNKS
+
     # Search for relevant chunks (semantic + keyword hybrid)
-    chunks = await search_similar_chunks(search_query, top_k=MAX_CONTEXT_CHUNKS)
+    chunks = await search_similar_chunks(search_query, top_k=search_top_k)
 
     # Log search results
     if chunks:
