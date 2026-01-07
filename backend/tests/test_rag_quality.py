@@ -113,6 +113,145 @@ TEST_CASES = [
         min_confidence=0.0,
         description="Programming questions should have low retrieval confidence"
     ),
+
+    # ============================================================
+    # EXTENDED TEST SUITE - Additional coverage
+    # ============================================================
+
+    # Pricing & Business queries
+    TestCase(
+        query="How much does Klyra cost?",
+        expected_sources=["company", "klyra", "pricing", "script"],
+        excluded_sources=[],
+        min_confidence=0.5,
+        description="Pricing info should come from company/pricing docs"
+    ),
+    TestCase(
+        query="What payment options do you accept?",
+        expected_sources=["company", "klyra", "pricing"],
+        excluded_sources=[],
+        min_confidence=0.4,
+        description="Payment options from company docs"
+    ),
+
+    # Technical & Security queries
+    TestCase(
+        query="Is my data secure with Klyra?",
+        expected_sources=["company", "compliance", "technical", "security"],
+        excluded_sources=[],
+        min_confidence=0.4,
+        description="Security questions should hit compliance/technical docs"
+    ),
+    TestCase(
+        query="Does Klyra comply with GDPR?",
+        expected_sources=["company", "compliance", "positioning", "gdpr"],
+        excluded_sources=[],
+        min_confidence=0.4,
+        description="GDPR compliance from compliance docs"
+    ),
+    TestCase(
+        query="Where is Klyra data stored?",
+        expected_sources=["company", "technical", "script"],
+        excluded_sources=[],
+        min_confidence=0.4,
+        description="Data storage from technical docs"
+    ),
+
+    # Support & Contact queries
+    TestCase(
+        query="How do I get support for Klyra?",
+        expected_sources=["company", "support", "klyra"],
+        excluded_sources=[],
+        min_confidence=0.4,
+        description="Support info from company docs"
+    ),
+    TestCase(
+        query="What is the onboarding process?",
+        expected_sources=["company", "script", "onboarding"],
+        excluded_sources=[],
+        min_confidence=0.4,
+        description="Onboarding from company/sales docs"
+    ),
+
+    # Brand & Style queries
+    TestCase(
+        query="What are Klyra's brand colors?",
+        expected_sources=["brand", "guidelines", "style"],
+        excluded_sources=[],
+        min_confidence=0.5,
+        description="Brand colors from brand guidelines"
+    ),
+    TestCase(
+        query="What font does Klyra use?",
+        expected_sources=["brand", "guidelines", "typography"],
+        excluded_sources=[],
+        min_confidence=0.4,
+        description="Typography from brand guidelines"
+    ),
+
+    # Product feature queries
+    TestCase(
+        query="What can Klyra do?",
+        expected_sources=["company", "script", "klyra"],
+        excluded_sources=[],
+        min_confidence=0.5,
+        description="Features from company/script docs"
+    ),
+    TestCase(
+        query="How does Klyra learn from my documents?",
+        expected_sources=["company", "script", "technical"],
+        excluded_sources=[],
+        min_confidence=0.4,
+        description="Document learning from technical/company docs"
+    ),
+
+    # Edge case - partial/fuzzy matches
+    TestCase(
+        query="Tell me about the Thompson case",
+        expected_sources=["thompson", "case"],
+        excluded_sources=[],
+        min_confidence=0.5,
+        description="Partial name should still find Thompson case study"
+    ),
+
+    # More general knowledge (should be LOW confidence)
+    TestCase(
+        query="How do I cook pasta?",
+        expected_sources=[],
+        excluded_sources=[],
+        min_confidence=0.0,
+        description="Cooking questions should have low confidence"
+    ),
+    TestCase(
+        query="What is the weather like today?",
+        expected_sources=[],
+        excluded_sources=[],
+        min_confidence=0.0,
+        description="Weather questions should have low confidence"
+    ),
+    TestCase(
+        query="Who won the World Cup in 2022?",
+        expected_sources=[],
+        excluded_sources=[],
+        min_confidence=0.0,
+        description="Sports trivia should have low confidence"
+    ),
+
+    # Competitor/unrelated product queries (should be LOW confidence)
+    TestCase(
+        query="How does Salesforce CRM work?",
+        expected_sources=[],
+        excluded_sources=[],
+        min_confidence=0.0,
+        description="Competitor product questions should have low confidence"
+    ),
+    TestCase(
+        query="What is Microsoft Copilot?",
+        expected_sources=[],
+        excluded_sources=[],
+        min_confidence=0.0,
+        description="Other AI products should have low confidence"
+    ),
 ]
 
 
