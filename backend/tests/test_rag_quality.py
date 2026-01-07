@@ -128,8 +128,9 @@ class RAGTestRunner:
         """Run a single test case and return (passed, message)."""
         from rag import search_similar_chunks
 
-        # Relevance threshold (same as in rag.py)
+        # Thresholds (same as in rag.py)
         RELEVANCE_THRESHOLD = 0.55
+        MEDIUM_CONFIDENCE_THRESHOLD = 0.60  # Below this = LOW confidence
 
         # Run the search
         chunks = await search_similar_chunks(test_case.query, top_k=8)
@@ -146,13 +147,14 @@ class RAGTestRunner:
         top_scores = [(doc, score) for doc, _, score in chunks[:3]]
         max_score = max(score for _, _, score in chunks)
 
-        # For general knowledge tests (no expected sources), check that scores are LOW
+        # For general knowledge tests (no expected sources), check that confidence is LOW
         if not test_case.expected_sources:
-            # General knowledge query - should have low relevance scores
-            if max_score < RELEVANCE_THRESHOLD:
+            # General knowledge query - should have LOW confidence (below MEDIUM threshold)
+            # This ensures Klyra will add disclaimers or use general knowledge
+            if max_score < MEDIUM_CONFIDENCE_THRESHOLD:
                 return True, f"✓ Low confidence ({max_score:.2f}) - will use general knowledge"
             else:
-                return False, f"✗ Score too high ({max_score:.2f}) for general knowledge query"
+                return False, f"✗ Score too high ({max_score:.2f}) - needs to be below {MEDIUM_CONFIDENCE_THRESHOLD}"
 
         # Check expected sources
         found_expected = False
