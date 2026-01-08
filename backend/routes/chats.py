@@ -209,12 +209,19 @@ async def send_message(
                 yield f"data: {json.dumps({'token': token})}\n\n"
 
             # Match response text to chunks to determine correct citations
-            processed_response, valid_sources = match_response_to_sources(full_response, chunks)
+            # Skip citation matching for general knowledge responses (no relevant docs found)
+            used_general_knowledge = rag_metadata.get("used_general_knowledge", False)
+            if used_general_knowledge:
+                # Pure general knowledge - no sources to cite
+                processed_response = full_response
+                valid_sources = []
+            else:
+                processed_response, valid_sources = match_response_to_sources(full_response, chunks)
 
             # Add low-confidence disclaimer if needed
+            # Only for factual queries with no sources (not casual queries)
             disclaimer = get_low_confidence_disclaimer(confidence_level, query_content)
-            if disclaimer and not valid_sources:
-                # Only add disclaimer if no sources were matched (pure general knowledge)
+            if disclaimer and not valid_sources and not used_general_knowledge:
                 processed_response += disclaimer
                 # Stream the disclaimer to the frontend
                 yield f"data: {json.dumps({'token': disclaimer})}\n\n"
