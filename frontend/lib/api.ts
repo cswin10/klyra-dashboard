@@ -48,25 +48,24 @@ export interface Message {
 }
 
 export type DocumentCategory =
-  | "company_info"
-  | "team"
-  | "templates"
-  | "policies"
-  | "products"
-  | "general";
+  | "sales"
+  | "company"
+  | "legal"
+  | "technical"
+  | "other";
 
 export const DOCUMENT_CATEGORIES: { value: DocumentCategory; label: string; description: string }[] = [
-  { value: "company_info", label: "Company Info", description: "Company ethos, values, mission" },
-  { value: "team", label: "Team", description: "Employees, roles, org structure" },
-  { value: "templates", label: "Templates", description: "Email templates, tone guides" },
-  { value: "policies", label: "Policies", description: "HR policies, procedures" },
-  { value: "products", label: "Products", description: "Product info, documentation" },
-  { value: "general", label: "General", description: "Other documents" },
+  { value: "sales", label: "Sales & Marketing", description: "Sales materials, marketing content" },
+  { value: "company", label: "Company Info", description: "Company ethos, values, mission" },
+  { value: "legal", label: "Legal & Compliance", description: "Legal documents, policies" },
+  { value: "technical", label: "Technical", description: "Technical documentation" },
+  { value: "other", label: "Other", description: "General documents" },
 ];
 
 export interface Document {
   id: string;
   name: string;
+  original_filename: string | null;
   file_type: string;
   file_size: number;
   category: DocumentCategory;
@@ -74,9 +73,22 @@ export interface Document {
   chunk_count: number;
   uploaded_by: string;
   uploaded_at: string;
+  owner_id: string | null;  // null = company-wide, user_id = personal
+  is_company_wide: boolean;
   version: number;
   parent_id: string | null;
   is_latest: boolean;
+}
+
+export interface DocumentUploadOptions {
+  name: string;
+  category: DocumentCategory;
+  is_company_wide: boolean;
+}
+
+export interface MyDocumentCount {
+  count: number;
+  limit: number;
 }
 
 export interface DocumentVersion {
@@ -361,11 +373,17 @@ class ApiClient {
     return this.request("/api/documents");
   }
 
-  async uploadDocument(file: File, category: DocumentCategory = "general"): Promise<Document> {
+  async getMyDocumentCount(): Promise<MyDocumentCount> {
+    return this.request("/api/documents/my-document-count");
+  }
+
+  async uploadDocument(file: File, options: DocumentUploadOptions): Promise<Document> {
     const token = this.getToken();
     const formData = new FormData();
     formData.append("file", file);
-    formData.append("category", category);
+    formData.append("name", options.name);
+    formData.append("category", options.category);
+    formData.append("is_company_wide", String(options.is_company_wide));
 
     const response = await fetch(`${API_BASE_URL}/api/documents`, {
       method: "POST",
@@ -381,6 +399,27 @@ class ApiClient {
     }
 
     return response.json();
+  }
+
+  async downloadDocument(documentId: string): Promise<Blob> {
+    const token = this.getToken();
+    const response = await fetch(`${API_BASE_URL}/api/documents/${documentId}/download`, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    });
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ detail: "Failed to download document" }));
+      throw new Error(error.detail);
+    }
+
+    return response.blob();
+  }
+
+  getDocumentDownloadUrl(documentId: string): string {
+    const token = this.getToken();
+    return `${API_BASE_URL}/api/documents/${documentId}/download?token=${token}`;
   }
 
   async deleteDocument(documentId: string): Promise<void> {

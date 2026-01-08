@@ -1,10 +1,12 @@
 import os
 import asyncio
-from typing import List
+from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, BackgroundTasks, Form
+from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
+from sqlalchemy import or_
 from database import get_db
-from models import Document, DocumentStatus, DocumentCategory
+from models import Document, DocumentStatus, DocumentCategory, UserRole
 from schemas import DocumentResponse, DocumentVersionResponse
 from auth import get_current_user, CurrentUser
 from config import UPLOADS_DIR
@@ -16,6 +18,7 @@ logger = get_logger("documents")
 router = APIRouter(prefix="/api/documents", tags=["documents"])
 
 ALLOWED_EXTENSIONS = {"pdf", "docx", "doc", "txt", "md"}
+MAX_PERSONAL_DOCUMENTS = 10  # Limit per user for personal docs
 
 
 def get_file_extension(filename: str) -> str:
@@ -29,6 +32,7 @@ def process_document_task(
     file_name: str,
     file_type: str,
     category: str,
+    owner_id: str,  # NULL for company docs, user_id for personal
     db_url: str
 ):
     """Background task to process a document."""
@@ -50,7 +54,7 @@ def process_document_task(
         asyncio.set_event_loop(loop)
         try:
             chunk_count = loop.run_until_complete(
-                process_document(document_id, file_path, file_name, file_type, category)
+                process_document(document_id, file_path, file_name, file_type, category, owner_id)
             )
         finally:
             loop.close()
@@ -78,22 +82,55 @@ async def get_documents(
     current_user: CurrentUser = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Get all documents (latest versions only)."""
+    """Get all documents visible to the user.
+
+    Returns:
+    - All company-wide documents (owner_id IS NULL)
+    - User's personal documents (owner_id = current_user.id)
+    """
     documents = db.query(Document).filter(
-        Document.is_latest == 1
+        Document.is_latest == 1,
+        or_(
+            Document.owner_id.is_(None),  # Company-wide docs
+            Document.owner_id == current_user.id  # User's personal docs
+        )
     ).order_by(Document.uploaded_at.desc()).all()
-    return [DocumentResponse.model_validate(doc) for doc in documents]
+    return [DocumentResponse.from_orm_with_company_flag(doc) for doc in documents]
+
+
+@router.get("/my-document-count")
+async def get_my_document_count(
+    current_user: CurrentUser = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get count of user's personal documents (for limit checking)."""
+    count = db.query(Document).filter(
+        Document.owner_id == current_user.id,
+        Document.is_latest == 1
+    ).count()
+    return {
+        "count": count,
+        "limit": MAX_PERSONAL_DOCUMENTS,
+        "remaining": MAX_PERSONAL_DOCUMENTS - count
+    }
 
 
 @router.post("", response_model=DocumentResponse)
 async def upload_document(
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
-    category: str = Form(default="general"),
+    name: str = Form(...),  # User-provided display name
+    category: str = Form(default="other"),
+    is_company_wide: bool = Form(default=False),
     current_user: CurrentUser = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Upload and process a document."""
+    """Upload and process a document.
+
+    - Admins can upload company-wide docs (is_company_wide=True) or personal docs
+    - Regular users can only upload personal docs (is_company_wide forced to False)
+    - Personal docs are limited to MAX_PERSONAL_DOCUMENTS per user
+    """
     # Validate file extension
     file_ext = get_file_extension(file.filename)
     if file_ext not in ALLOWED_EXTENSIONS:
@@ -102,42 +139,48 @@ async def upload_document(
             detail=f"File type not supported. Allowed types: {', '.join(ALLOWED_EXTENSIONS)}"
         )
 
+    # Permission check: only admins can upload company-wide docs
+    if is_company_wide and current_user.role != UserRole.admin:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only administrators can upload company-wide documents"
+        )
+
+    # If not company-wide, check personal document limit
+    if not is_company_wide:
+        personal_count = db.query(Document).filter(
+            Document.owner_id == current_user.id,
+            Document.is_latest == 1
+        ).count()
+        if personal_count >= MAX_PERSONAL_DOCUMENTS:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"You have reached the maximum limit of {MAX_PERSONAL_DOCUMENTS} personal documents. Please delete some documents before uploading more."
+            )
+
     # Read file content
     content = await file.read()
     file_size = len(content)
 
-    # Auto-detect category if not specified or set to "auto"
-    if category in ["auto", "general", ""]:
-        # Try to detect from filename first
-        detected = detect_category(file.filename)
-        if detected == "general":
-            # If filename didn't help, try content (for text files)
-            if file_ext in ["txt", "md"]:
-                try:
-                    text_preview = content[:2000].decode('utf-8', errors='ignore')
-                    detected = detect_category(text_preview)
-                except:
-                    pass
-        logger.info(f"Auto-detected category for '{file.filename}': {detected}")
-        try:
-            doc_category = DocumentCategory(detected)
-        except ValueError:
-            doc_category = DocumentCategory.general
-    else:
-        # Use provided category
-        try:
-            doc_category = DocumentCategory(category)
-        except ValueError:
-            doc_category = DocumentCategory.general
+    # Parse category
+    try:
+        doc_category = DocumentCategory(category)
+    except ValueError:
+        doc_category = DocumentCategory.other
+
+    # Set owner_id: NULL for company docs, user id for personal docs
+    owner_id = None if is_company_wide else current_user.id
 
     # Create document record
     document = Document(
-        name=file.filename,
+        name=name,  # User-provided display name
+        original_filename=file.filename,  # Original filename for reference
         file_type=file_ext,
         file_size=file_size,
         category=doc_category,
         status=DocumentStatus.processing,
-        uploaded_by=current_user.id
+        uploaded_by=current_user.id,
+        owner_id=owner_id
     )
     db.add(document)
     db.commit()
@@ -157,13 +200,57 @@ async def upload_document(
         process_document_task,
         document.id,
         file_path,
-        file.filename,
+        name,  # Use display name for embeddings
         file_ext,
         doc_category.value,
+        owner_id,  # NULL for company docs, user_id for personal
         settings.DATABASE_URL
     )
 
-    return DocumentResponse.model_validate(document)
+    return DocumentResponse.from_orm_with_company_flag(document)
+
+
+@router.get("/{document_id}/download")
+async def download_document(
+    document_id: str,
+    current_user: CurrentUser = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Download a document file.
+
+    Users can download:
+    - Any company-wide document
+    - Their own personal documents
+    """
+    document = db.query(Document).filter(Document.id == document_id).first()
+
+    if not document:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Document not found"
+        )
+
+    # Permission check: company docs or own personal docs
+    if document.owner_id is not None and document.owner_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You don't have permission to download this document"
+        )
+
+    if not document.file_path or not os.path.exists(document.file_path):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Document file not found on disk"
+        )
+
+    # Use original filename if available, otherwise use display name
+    filename = document.original_filename or f"{document.name}.{document.file_type}"
+
+    return FileResponse(
+        path=document.file_path,
+        filename=filename,
+        media_type="application/octet-stream"
+    )
 
 
 @router.delete("/{document_id}")
@@ -172,13 +259,35 @@ async def delete_document(
     current_user: CurrentUser = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Delete a document and its embeddings."""
+    """Delete a document and its embeddings.
+
+    Permissions:
+    - Admins can delete any company-wide document
+    - Users can delete their own personal documents
+    """
     document = db.query(Document).filter(Document.id == document_id).first()
 
     if not document:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Document not found"
+        )
+
+    # Permission check
+    is_company_doc = document.owner_id is None
+    is_own_doc = document.owner_id == current_user.id
+    is_admin = current_user.role == UserRole.admin
+
+    if is_company_doc and not is_admin:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only administrators can delete company-wide documents"
+        )
+
+    if not is_company_doc and not is_own_doc and not is_admin:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You can only delete your own documents"
         )
 
     # Delete from ChromaDB
@@ -350,10 +459,11 @@ async def upload_new_version(
         current_doc.name,  # Use original document name for embeddings
         file_ext,
         current_doc.category.value,
+        current_doc.owner_id,  # Keep same ownership as original
         settings.DATABASE_URL
     )
 
-    return DocumentResponse.model_validate(new_version)
+    return DocumentResponse.from_orm_with_company_flag(new_version)
 
 
 @router.post("/{document_id}/revert/{version_id}")
@@ -405,6 +515,7 @@ async def revert_to_version(
             target_doc.name,
             target_doc.file_type,
             target_doc.category.value,
+            target_doc.owner_id,  # Keep same ownership
             settings.DATABASE_URL
         )
 

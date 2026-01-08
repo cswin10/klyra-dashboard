@@ -90,12 +90,15 @@ class ChatListResponse(BaseModel):
 
 # ============ Document Schemas ============
 class DocumentUpload(BaseModel):
-    category: DocumentCategory = DocumentCategory.general
+    name: str  # User-provided display name
+    category: DocumentCategory = DocumentCategory.other
+    is_company_wide: bool = False  # True = company doc (admin only), False = personal doc
 
 
 class DocumentResponse(BaseModel):
     id: str
     name: str
+    original_filename: Optional[str] = None
     file_type: str
     file_size: int
     category: DocumentCategory
@@ -103,12 +106,36 @@ class DocumentResponse(BaseModel):
     chunk_count: int
     uploaded_by: str
     uploaded_at: datetime
+    owner_id: Optional[str] = None  # NULL = company doc
+    is_company_wide: bool = True  # Computed field
     version: int = 1
     parent_id: Optional[str] = None
     is_latest: bool = True
 
     class Config:
         from_attributes = True
+
+    @classmethod
+    def from_orm_with_company_flag(cls, doc):
+        """Create response with computed is_company_wide flag."""
+        data = {
+            "id": doc.id,
+            "name": doc.name,
+            "original_filename": doc.original_filename,
+            "file_type": doc.file_type,
+            "file_size": doc.file_size,
+            "category": doc.category,
+            "status": doc.status,
+            "chunk_count": doc.chunk_count,
+            "uploaded_by": doc.uploaded_by,
+            "uploaded_at": doc.uploaded_at,
+            "owner_id": doc.owner_id,
+            "is_company_wide": doc.owner_id is None,
+            "version": doc.version,
+            "parent_id": doc.parent_id,
+            "is_latest": doc.is_latest,
+        }
+        return cls(**data)
 
 
 class DocumentVersionResponse(BaseModel):
