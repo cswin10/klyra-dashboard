@@ -396,14 +396,55 @@ def detect_ambiguous_query(query: str, chunks: List[Tuple[str, str, float]]) -> 
     return None
 
 
+def is_casual_query(query: str) -> bool:
+    """
+    Check if a query is casual/emotional rather than factual.
+    These queries don't need confidence disclaimers.
+    """
+    query_lower = query.lower().strip()
+
+    # Greetings and farewells
+    casual_patterns = [
+        "hi", "hello", "hey", "good morning", "good afternoon", "good evening",
+        "bye", "goodbye", "see you", "thanks", "thank you", "thank",
+        # Emotional/conversational
+        "how are you", "what's up", "whats up", "how's it going",
+        "i'm feeling", "i feel", "i am feeling", "feeling",
+        "stressed", "anxious", "nervous", "excited", "happy", "sad", "worried",
+        "help me", "support", "encourage", "motivate",
+        # Casual chat
+        "cool", "nice", "awesome", "great", "okay", "ok", "sure", "yes", "no",
+        "i think", "i believe", "in my opinion", "imo",
+        # Requests for opinion/advice (not factual)
+        "what do you think", "your thoughts", "your opinion",
+        "should i", "do you think",
+    ]
+
+    # Check if query starts with or contains casual patterns
+    for pattern in casual_patterns:
+        if query_lower.startswith(pattern) or query_lower == pattern:
+            return True
+
+    # Very short queries are often casual
+    if len(query_lower.split()) <= 2:
+        return True
+
+    return False
+
+
 def get_low_confidence_disclaimer(confidence_level: str, query: str) -> Optional[str]:
     """
     Generate a disclaimer for low-confidence responses.
+    Only shows on factual queries, not casual/emotional ones.
     """
+    # Don't add disclaimers to casual queries
+    if is_casual_query(query):
+        return None
+
     if confidence_level == "none":
-        return "\n\n---\n*I couldn't find specific information about this in the uploaded documents. This answer is based on general knowledge.*"
+        return "\n\nI couldn't find specific information about this in the uploaded documents, so this answer is based on general knowledge."
     elif confidence_level == "low":
-        return "\n\n---\n*Note: I found some related information, but I'm not fully confident this answers your question. You may want to check the source document directly or rephrase your question.*"
+        return "\n\nNote: I found some related information but I'm not fully confident this answers your question. You may want to check the source document directly."
     return None
 
 
@@ -422,13 +463,13 @@ def get_ambiguity_clarification(ambiguous_docs: List[str], query: str) -> Option
         name = name.replace('-', ' ').replace('_', ' ')
         clean_names.append(name)
 
-    docs_list = ", ".join(f"**{name}**" for name in clean_names[:-1])
+    # Join names without markdown formatting
     if len(clean_names) > 1:
-        docs_list += f" and **{clean_names[-1]}**"
+        docs_list = ", ".join(clean_names[:-1]) + f" and {clean_names[-1]}"
     else:
-        docs_list = f"**{clean_names[0]}**"
+        docs_list = clean_names[0]
 
-    return f"\n\n---\n*I found relevant information in multiple documents ({docs_list}). If you need information from a specific document, please mention it in your question.*"
+    return f"\n\nI found relevant information in multiple documents ({docs_list}). If you need information from a specific document, please mention it in your question."
 
 
 def expand_query(query: str) -> str:
@@ -988,9 +1029,11 @@ def match_response_to_sources(response: str, chunks: List[Tuple[str, str, float]
             logger.info(f"  {doc}: {score} {'✓' if score >= threshold else '✗'}")
 
         if matched_docs:
-            cleaned_response += f"\n\nSources: {', '.join(matched_docs)}"
-            logger.info(f"Final citations: {matched_docs}")
-            return cleaned_response, matched_docs
+            # Don't add Sources to response text - frontend handles display
+            # Deduplicate and normalize document names
+            unique_docs = list(dict.fromkeys(matched_docs))  # Preserve order, remove dupes
+            logger.info(f"Final citations: {unique_docs}")
+            return cleaned_response, unique_docs
 
     logger.info("No significant text overlap found - no citations added")
     return cleaned_response, []
@@ -1393,21 +1436,25 @@ def build_system_prompt(chunks: List[Tuple[str, str, float]], use_general_knowle
     This contains the assistant identity and document context,
     but NOT the conversation history (that's handled by the messages array).
     """
-    identity = """You are Klyra, an AI assistant created by Klyra Labs.
+    identity = """You are Klyra, a friendly AI assistant created by Klyra Labs.
 
-IDENTITY (only mention if DIRECTLY asked "who are you" or "who made you"):
-- Your name is Klyra, created by Klyra Labs
-- NEVER say you were made by Alibaba, OpenAI, Anthropic, or any other company
-- Do NOT end every message with your identity - only state it when asked"""
+IDENTITY: Only mention if directly asked "who are you" or "who made you". Your name is Klyra, created by Klyra Labs. Never claim to be made by any other company.
+
+FORMATTING - THIS IS CRITICAL:
+- Do NOT use markdown: no **, ##, ###, *, or bullet points
+- Do NOT use numbered lists unless specifically asked
+- Write in plain, natural paragraphs like a normal conversation
+- Never use LaTeX, code blocks, or special formatting
+- Keep responses concise and conversational"""
 
     if use_general_knowledge or not chunks:
         return f"""{identity}
 
-INSTRUCTIONS:
-- Answer naturally using your general knowledge
-- Be helpful, friendly, and conversational
-- Maintain context from the conversation
-- Do NOT add unnecessary sign-offs or identity statements"""
+STYLE:
+- Be helpful and friendly, like chatting with a knowledgeable colleague
+- Match the user's tone (casual if they're casual)
+- Give direct answers without over-explaining
+- Use short paragraphs, not walls of text"""
 
     # Build document context
     context_parts = []
@@ -1428,12 +1475,12 @@ INSTRUCTIONS:
 
     return f"""{identity}
 
-INSTRUCTIONS:
-1. Answer using the DOCUMENTS below when they contain relevant information
-2. For questions not covered in documents, use your general knowledge naturally
-3. Be direct, helpful, and conversational. Maintain context from the conversation.
-4. NEVER make up company information - only use what's in the documents
-5. Do NOT add "Sources:" - the system handles citations automatically
+STYLE:
+- Use the DOCUMENTS below when they have relevant info
+- For other questions, use general knowledge naturally
+- Be conversational, not robotic or over-structured
+- Never invent company-specific facts not in documents
+- Do NOT write "Sources:" - the system adds citations automatically
 
 DOCUMENTS:
 {context_str}"""
