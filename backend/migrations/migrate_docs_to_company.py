@@ -30,10 +30,11 @@ def migrate_database():
     try:
         # Get all documents
         from models import Document
+        from sqlalchemy import text
 
         # Update all documents to have owner_id = NULL
         result = db.execute(
-            "UPDATE documents SET owner_id = NULL WHERE owner_id IS NOT NULL"
+            text("UPDATE documents SET owner_id = NULL WHERE owner_id IS NOT NULL")
         )
         count = result.rowcount
 
