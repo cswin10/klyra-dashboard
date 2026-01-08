@@ -247,11 +247,12 @@ async def send_message(
                 processed_response, valid_sources = match_response_to_sources(full_response, chunks)
 
             # Add low-confidence disclaimer if needed
-            # Only for factual queries with no sources (not casual queries)
+            # Only show if: low confidence AND documents were actually used in response
+            # If no sources matched, the response is effectively general knowledge - no disclaimer needed
             disclaimer = get_low_confidence_disclaimer(confidence_level, query_content)
-            if disclaimer and not valid_sources and not used_general_knowledge:
+            if disclaimer and valid_sources:
+                # Only add disclaimer if sources were actually cited (means docs were used but confidence is low)
                 processed_response += disclaimer
-                # Stream the disclaimer to the frontend
                 yield f"data: {json.dumps({'token': disclaimer})}\n\n"
 
             # Add ambiguity clarification if multiple docs matched equally
