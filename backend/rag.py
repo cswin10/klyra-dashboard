@@ -1380,4 +1380,60 @@ async def query_with_rag(
         use_general_knowledge=use_general
     )
 
-    return prompt, doc_names, relevant_chunks, metadata
+    # Also build system prompt for chat API (without embedded history)
+    system_prompt = build_system_prompt(relevant_chunks, use_general_knowledge=use_general)
+
+    return prompt, doc_names, relevant_chunks, metadata, system_prompt
+
+
+def build_system_prompt(chunks: List[Tuple[str, str, float]], use_general_knowledge: bool = False) -> str:
+    """
+    Build a system prompt for the chat API.
+
+    This contains the assistant identity and document context,
+    but NOT the conversation history (that's handled by the messages array).
+    """
+    identity = """You are Klyra, an AI assistant created by Klyra Labs.
+
+IDENTITY (only mention if DIRECTLY asked "who are you" or "who made you"):
+- Your name is Klyra, created by Klyra Labs
+- NEVER say you were made by Alibaba, OpenAI, Anthropic, or any other company
+- Do NOT end every message with your identity - only state it when asked"""
+
+    if use_general_knowledge or not chunks:
+        return f"""{identity}
+
+INSTRUCTIONS:
+- Answer naturally using your general knowledge
+- Be helpful, friendly, and conversational
+- Maintain context from the conversation
+- Do NOT add unnecessary sign-offs or identity statements"""
+
+    # Build document context
+    context_parts = []
+    for doc_name, chunk_text, score in chunks:
+        section = extract_section_from_chunk(chunk_text)
+        content_lines = chunk_text.split('\n')
+        if len(content_lines) > 1 and ' > ' in content_lines[0]:
+            content = '\n'.join(content_lines[1:]).strip()
+        else:
+            content = chunk_text.strip()
+
+        if section:
+            context_parts.append(f"[{doc_name}, {section}]\n{content}")
+        else:
+            context_parts.append(f"[{doc_name}]\n{content}")
+
+    context_str = "\n\n---\n\n".join(context_parts)
+
+    return f"""{identity}
+
+INSTRUCTIONS:
+1. Answer using the DOCUMENTS below when they contain relevant information
+2. For questions not covered in documents, use your general knowledge naturally
+3. Be direct, helpful, and conversational. Maintain context from the conversation.
+4. NEVER make up company information - only use what's in the documents
+5. Do NOT add "Sources:" - the system handles citations automatically
+
+DOCUMENTS:
+{context_str}"""
