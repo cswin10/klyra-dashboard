@@ -1,8 +1,8 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { cn } from "@/lib/utils";
-import { ThumbsUp, ThumbsDown } from "lucide-react";
+import { ThumbsUp, ThumbsDown, FileText } from "lucide-react";
 import { api, FeedbackType } from "@/lib/api";
 
 interface ChatMessageProps {
@@ -18,6 +18,19 @@ export function ChatMessage({ messageId, role, content, sources, isStreaming }: 
   const isThinking = isStreaming && !content;
   const [feedback, setFeedback] = useState<FeedbackType | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Deduplicate and clean sources
+  const cleanSources = useMemo(() => {
+    if (!sources || sources.length === 0) return [];
+    // Remove duplicates (case-insensitive)
+    const seen = new Set<string>();
+    return sources.filter((source) => {
+      const normalized = source.toLowerCase().trim();
+      if (seen.has(normalized)) return false;
+      seen.add(normalized);
+      return true;
+    });
+  }, [sources]);
 
   // Load existing feedback when message ID is available
   useEffect(() => {
@@ -79,11 +92,19 @@ export function ChatMessage({ messageId, role, content, sources, isStreaming }: 
           )}
         </div>
 
-        {sources && sources.length > 0 && (
+        {cleanSources.length > 0 && (
           <div className="mt-2 pt-2 border-t border-card-border/50">
-            <p className="text-xs text-text-muted">
-              Sources: {sources.join(", ")}
-            </p>
+            <div className="flex flex-wrap gap-1.5 items-center">
+              <FileText className="h-3 w-3 text-text-muted flex-shrink-0" />
+              {cleanSources.map((source, idx) => (
+                <span
+                  key={idx}
+                  className="inline-flex items-center px-2 py-0.5 rounded-full text-xs bg-accent/10 text-accent border border-accent/20"
+                >
+                  {source}
+                </span>
+              ))}
+            </div>
           </div>
         )}
 
