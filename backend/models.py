@@ -18,12 +18,11 @@ class DocumentStatus(str, enum.Enum):
 
 
 class DocumentCategory(str, enum.Enum):
-    company_info = "company_info"       # Company ethos, values, mission
-    team = "team"                       # Employees, roles, org structure
-    templates = "templates"             # Email templates, formats, tone guides
-    policies = "policies"               # HR policies, procedures, guidelines
-    products = "products"               # Product info, specs, documentation
-    general = "general"                 # General/uncategorized documents
+    sales = "sales"                 # Sales & Marketing materials
+    company = "company"             # Company info, policies
+    legal = "legal"                 # Legal & Compliance
+    technical = "technical"         # Technical documentation
+    other = "other"                 # Other/General documents
 
 
 class MessageRole(str, enum.Enum):
@@ -64,7 +63,7 @@ class User(Base):
 
     # Relationships
     chats = relationship("Chat", back_populates="user", cascade="all, delete-orphan")
-    documents = relationship("Document", back_populates="uploaded_by_user", cascade="all, delete-orphan")
+    documents = relationship("Document", back_populates="uploaded_by_user", cascade="all, delete-orphan", foreign_keys="[Document.uploaded_by]")
     logs = relationship("Log", back_populates="user", cascade="all, delete-orphan")
 
 
@@ -100,22 +99,26 @@ class Document(Base):
     __tablename__ = "documents"
 
     id = Column(String(36), primary_key=True, default=generate_uuid)
-    name = Column(String(255), nullable=False)
+    name = Column(String(255), nullable=False)  # User-provided display name
+    original_filename = Column(String(255), nullable=True)  # Original uploaded filename
     file_type = Column(String(50), nullable=False)
     file_size = Column(Integer, nullable=False)  # bytes
-    category = Column(Enum(DocumentCategory), default=DocumentCategory.general, nullable=False)
+    category = Column(Enum(DocumentCategory), default=DocumentCategory.other, nullable=False)
     status = Column(Enum(DocumentStatus), default=DocumentStatus.processing, nullable=False)
     chunk_count = Column(Integer, default=0, nullable=False)
     uploaded_by = Column(String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     uploaded_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     file_path = Column(String(500), nullable=True)
+    # Ownership: NULL = company-wide document, user_id = personal document
+    owner_id = Column(String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=True)
     # Versioning fields
     version = Column(Integer, default=1, nullable=False)
     parent_id = Column(String(36), ForeignKey("documents.id", ondelete="SET NULL"), nullable=True)
     is_latest = Column(Integer, default=1, nullable=False)  # 1 = current version, 0 = archived
 
     # Relationships
-    uploaded_by_user = relationship("User", back_populates="documents")
+    uploaded_by_user = relationship("User", back_populates="documents", foreign_keys=[uploaded_by])
+    owner = relationship("User", foreign_keys=[owner_id])
     parent = relationship("Document", remote_side=[id], backref="versions")
 
 

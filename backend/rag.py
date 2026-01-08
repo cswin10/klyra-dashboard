@@ -194,11 +194,15 @@ async def process_document(
     file_path: str,
     file_name: str,
     file_type: str,
-    category: str = "general"
+    category: str = "general",
+    owner_id: str = None  # NULL = company doc, set = personal doc
 ) -> int:
     """
     Process a document: extract text, chunk it, generate embeddings, and store in ChromaDB.
     Returns the number of chunks created.
+
+    Args:
+        owner_id: NULL for company-wide docs, user_id for personal docs
     """
     # Extract text
     text = extract_text(file_path, file_type)
@@ -236,7 +240,8 @@ async def process_document(
             "document_id": document_id,
             "document_name": file_name,
             "category": category,
-            "chunk_index": i
+            "chunk_index": i,
+            "owner_id": owner_id or "__company__"  # ChromaDB needs non-null values
         })
 
     # Add to ChromaDB collection
@@ -617,11 +622,16 @@ def keyword_search_chunks(query: str, top_k: int = 5) -> List[Tuple[str, str, fl
 
 async def search_similar_chunks(
     query: str,
-    top_k: int = None
+    top_k: int = None,
+    user_id: str = None  # Filter for user-specific results
 ) -> List[Tuple[str, str, float]]:
     """
     Hybrid search: semantic similarity + keyword matching.
     Returns list of tuples: (document_name, chunk_text, score)
+
+    Args:
+        user_id: If provided, returns company docs + user's personal docs
+                 If None, returns only company docs
     """
     top_k = top_k or settings.TOP_K_RESULTS
 
@@ -631,12 +641,35 @@ async def search_similar_chunks(
     # Generate query embedding from expanded query
     query_embedding = await generate_embedding(expanded_query)
 
+    # Build filter for user-scoped search
+    # Include company docs (__company__) and user's personal docs
+    if user_id:
+        where_filter = {
+            "$or": [
+                {"owner_id": "__company__"},
+                {"owner_id": user_id}
+            ]
+        }
+    else:
+        # No user context - only search company docs
+        where_filter = {"owner_id": "__company__"}
+
     # Semantic search with ChromaDB
-    results = collection.query(
-        query_embeddings=[query_embedding],
-        n_results=top_k,
-        include=["documents", "metadatas", "distances"]
-    )
+    try:
+        results = collection.query(
+            query_embeddings=[query_embedding],
+            n_results=top_k,
+            include=["documents", "metadatas", "distances"],
+            where=where_filter
+        )
+    except Exception as e:
+        # Fallback: if filter fails (e.g., no owner_id in old chunks), search all
+        logger.warning(f"Filtered search failed, falling back to unfiltered: {e}")
+        results = collection.query(
+            query_embeddings=[query_embedding],
+            n_results=top_k,
+            include=["documents", "metadatas", "distances"]
+        )
 
     # Format semantic search results
     formatted_results = []
@@ -1224,7 +1257,11 @@ def is_user_provided_content(query: str) -> bool:
     return False
 
 
-async def query_with_rag(query: str, conversation_history: List[dict] = None) -> Tuple[str, List[str], List[Tuple[str, str, float]], Dict]:
+async def query_with_rag(
+    query: str,
+    conversation_history: List[dict] = None,
+    user_id: str = None  # For user-scoped document search
+) -> Tuple[str, List[str], List[Tuple[str, str, float]], Dict]:
     """
     Main RAG entry point.
 
@@ -1232,6 +1269,9 @@ async def query_with_rag(query: str, conversation_history: List[dict] = None) ->
     to general knowledge when no relevant documents are found.
 
     Scales to hundreds of documents (uses search, not include-all).
+
+    Args:
+        user_id: If provided, searches company docs + user's personal docs
 
     Returns: (prompt, doc_names, chunks, metadata)
     - prompt: The constructed prompt for the LLM
@@ -1295,7 +1335,8 @@ async def query_with_rag(query: str, conversation_history: List[dict] = None) ->
     search_top_k = MAX_CONTEXT_CHUNKS * 2 if is_team_query else MAX_CONTEXT_CHUNKS
 
     # Search for relevant chunks (semantic + keyword hybrid)
-    chunks = await search_similar_chunks(search_query, top_k=search_top_k)
+    # Pass user_id to include user's personal docs alongside company docs
+    chunks = await search_similar_chunks(search_query, top_k=search_top_k, user_id=user_id)
 
     # Log search results
     if chunks:

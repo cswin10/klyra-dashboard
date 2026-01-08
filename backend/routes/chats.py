@@ -182,7 +182,8 @@ async def send_message(
     # Build RAG prompt with conversation history
     # chunks contains the actual text for post-hoc citation matching
     # metadata contains confidence scores and other info
-    prompt, provided_docs, chunks, rag_metadata = await query_with_rag(query_content, conversation_history)
+    # Pass user_id to include user's personal docs alongside company docs
+    prompt, provided_docs, chunks, rag_metadata = await query_with_rag(query_content, conversation_history, user_id=user_id)
 
     # Capture user message ID for returning to frontend
     user_message_id = user_message.id
