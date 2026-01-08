@@ -10,7 +10,7 @@ from models import Chat, Message, MessageRole, Log
 from schemas import ChatCreate, ChatResponse, ChatListResponse, MessageCreate, MessageResponse
 from auth import get_current_user, CurrentUser
 from rag import query_with_rag, match_response_to_sources, get_low_confidence_disclaimer, get_ambiguity_clarification
-from ollama import generate_text
+from ollama import chat_generate
 
 router = APIRouter(prefix="/api/chats", tags=["chats"])
 
@@ -179,11 +179,11 @@ async def send_message(
     chat.updated_at = datetime.utcnow()
     db.commit()
 
-    # Build RAG prompt with conversation history
+    # Build RAG context - returns system prompt for chat API
     # chunks contains the actual text for post-hoc citation matching
     # metadata contains confidence scores and other info
     # Pass user_id to include user's personal docs alongside company docs
-    prompt, provided_docs, chunks, rag_metadata = await query_with_rag(query_content, conversation_history, user_id=user_id)
+    _, provided_docs, chunks, rag_metadata, system_prompt = await query_with_rag(query_content, conversation_history, user_id=user_id)
 
     # Capture user message ID for returning to frontend
     user_message_id = user_message.id
@@ -193,12 +193,17 @@ async def send_message(
     is_ambiguous = rag_metadata.get("is_ambiguous", False)
     ambiguous_docs = rag_metadata.get("ambiguous_docs", [])
 
+    # Build messages array for chat API (conversation history + current query)
+    chat_messages = conversation_history.copy() if conversation_history else []
+    chat_messages.append({"role": "user", "content": query_content})
+
     async def generate_stream():
         full_response = ""
         assistant_message_id = None
 
         try:
-            async for token in generate_text(prompt):
+            # Use chat API for proper conversational flow
+            async for token in chat_generate(chat_messages, system_prompt=system_prompt):
                 full_response += token
                 # Send token as SSE
                 yield f"data: {json.dumps({'token': token})}\n\n"

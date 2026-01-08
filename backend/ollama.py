@@ -1,4 +1,5 @@
 import httpx
+import json
 from typing import AsyncGenerator, Optional, List
 from config import settings
 
@@ -29,10 +30,65 @@ async def generate_text(
             response.raise_for_status()
             async for line in response.aiter_lines():
                 if line:
-                    import json
                     data = json.loads(line)
                     if "response" in data:
                         yield data["response"]
+                    if data.get("done", False):
+                        break
+
+
+async def chat_generate(
+    messages: List[dict],
+    system_prompt: str = None,
+    model: str = None,
+    stream: bool = True,
+    temperature: float = 0.7,
+    num_ctx: int = 16384
+) -> AsyncGenerator[str, None]:
+    """
+    Generate text using Ollama Chat API with proper conversation format.
+
+    Args:
+        messages: List of {"role": "user"|"assistant", "content": "..."} dicts
+        system_prompt: Optional system message to prepend
+        model: Model to use (defaults to settings.OLLAMA_MODEL)
+        stream: Whether to stream the response
+        temperature: Sampling temperature
+        num_ctx: Context window size
+    """
+    model = model or settings.OLLAMA_MODEL
+    url = f"{settings.OLLAMA_BASE_URL}/api/chat"
+
+    # Build messages array with optional system prompt
+    chat_messages = []
+    if system_prompt:
+        chat_messages.append({"role": "system", "content": system_prompt})
+
+    # Add conversation messages
+    for msg in messages:
+        chat_messages.append({
+            "role": msg["role"],
+            "content": msg["content"]
+        })
+
+    payload = {
+        "model": model,
+        "messages": chat_messages,
+        "stream": stream,
+        "options": {
+            "temperature": temperature,
+            "num_ctx": num_ctx
+        }
+    }
+
+    async with httpx.AsyncClient(timeout=300.0) as client:
+        async with client.stream("POST", url, json=payload) as response:
+            response.raise_for_status()
+            async for line in response.aiter_lines():
+                if line:
+                    data = json.loads(line)
+                    if "message" in data and "content" in data["message"]:
+                        yield data["message"]["content"]
                     if data.get("done", False):
                         break
 
