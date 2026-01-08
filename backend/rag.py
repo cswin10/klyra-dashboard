@@ -462,13 +462,25 @@ def get_ambiguity_clarification(ambiguous_docs: List[str], query: str) -> Option
     if not ambiguous_docs or len(ambiguous_docs) < 2:
         return None
 
-    # Clean up document names for display
+    # Deduplicate and clean up document names for display
+    seen = set()
     clean_names = []
-    for doc in ambiguous_docs[:3]:
+    for doc in ambiguous_docs[:5]:  # Check more to ensure we get unique ones
         # Remove file extension and clean up
         name = doc.rsplit('.', 1)[0]
         name = name.replace('-', ' ').replace('_', ' ')
+        # Skip duplicates (case-insensitive)
+        name_lower = name.lower()
+        if name_lower in seen:
+            continue
+        seen.add(name_lower)
         clean_names.append(name)
+        if len(clean_names) >= 3:  # Limit to 3 unique names
+            break
+
+    # Need at least 2 unique docs for ambiguity message
+    if len(clean_names) < 2:
+        return None
 
     # Join names without markdown formatting
     if len(clean_names) > 1:
