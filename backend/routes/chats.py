@@ -1,5 +1,6 @@
 import time
 import json
+import re
 from datetime import datetime
 from typing import List
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -11,6 +12,33 @@ from schemas import ChatCreate, ChatResponse, ChatListResponse, MessageCreate, M
 from auth import get_current_user, CurrentUser
 from rag import query_with_rag, match_response_to_sources, get_low_confidence_disclaimer, get_ambiguity_clarification
 from ollama import chat_generate
+
+
+def strip_markdown(text: str) -> str:
+    """Remove markdown formatting from text for cleaner display."""
+    # Remove bold/italic markers
+    text = re.sub(r'\*\*(.+?)\*\*', r'\1', text)  # **bold**
+    text = re.sub(r'\*(.+?)\*', r'\1', text)      # *italic*
+    text = re.sub(r'__(.+?)__', r'\1', text)      # __bold__
+    text = re.sub(r'_(.+?)_', r'\1', text)        # _italic_
+
+    # Remove headers
+    text = re.sub(r'^#{1,6}\s+', '', text, flags=re.MULTILINE)  # ## headers
+
+    # Remove bullet points at start of lines
+    text = re.sub(r'^[\s]*[-*+]\s+', '', text, flags=re.MULTILINE)
+
+    # Remove numbered lists (1. 2. 3.)
+    text = re.sub(r'^[\s]*\d+\.\s+', '', text, flags=re.MULTILINE)
+
+    # Remove code blocks
+    text = re.sub(r'```[\s\S]*?```', '', text)
+    text = re.sub(r'`(.+?)`', r'\1', text)  # inline code
+
+    # Clean up extra whitespace
+    text = re.sub(r'\n{3,}', '\n\n', text)
+
+    return text.strip()
 
 router = APIRouter(prefix="/api/chats", tags=["chats"])
 

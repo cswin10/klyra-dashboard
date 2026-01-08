@@ -5,6 +5,28 @@ import { cn } from "@/lib/utils";
 import { ThumbsUp, ThumbsDown, FileText } from "lucide-react";
 import { api, FeedbackType } from "@/lib/api";
 
+// Strip markdown formatting for clean display
+function stripMarkdown(text: string): string {
+  return text
+    // Remove bold/italic
+    .replace(/\*\*(.+?)\*\*/g, "$1")
+    .replace(/\*(.+?)\*/g, "$1")
+    .replace(/__(.+?)__/g, "$1")
+    .replace(/_(.+?)_/g, "$1")
+    // Remove headers
+    .replace(/^#{1,6}\s+/gm, "")
+    // Remove bullet points
+    .replace(/^\s*[-*+]\s+/gm, "")
+    // Remove numbered lists
+    .replace(/^\s*\d+\.\s+/gm, "")
+    // Remove code blocks
+    .replace(/```[\s\S]*?```/g, "")
+    .replace(/`(.+?)`/g, "$1")
+    // Clean up extra whitespace
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
 interface ChatMessageProps {
   messageId?: string;
   role: "user" | "assistant";
@@ -18,6 +40,12 @@ export function ChatMessage({ messageId, role, content, sources, isStreaming }: 
   const isThinking = isStreaming && !content;
   const [feedback, setFeedback] = useState<FeedbackType | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Strip markdown from assistant messages for clean display
+  const displayContent = useMemo(() => {
+    if (isUser) return content;
+    return stripMarkdown(content);
+  }, [content, isUser]);
 
   // Deduplicate and clean sources
   const cleanSources = useMemo(() => {
@@ -84,7 +112,7 @@ export function ChatMessage({ messageId, role, content, sources, isStreaming }: 
             </span>
           ) : (
             <>
-              {content}
+              {displayContent}
               {isStreaming && (
                 <span className="inline-block w-2 h-4 ml-1 bg-current animate-pulse" />
               )}
