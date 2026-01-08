@@ -13,16 +13,16 @@ function stripMarkdown(text: string): string {
     .replace(/\*(.+?)\*/g, "$1")
     .replace(/__(.+?)__/g, "$1")
     .replace(/_(.+?)_/g, "$1")
-    // Remove headers
-    .replace(/^#{1,6}\s+/gm, "")
-    // Remove bullet points
-    .replace(/^\s*[-*+]\s+/gm, "")
-    // Remove numbered lists
-    .replace(/^\s*\d+\.\s+/gm, "")
+    // Remove headers but keep as separate paragraph
+    .replace(/^#{1,6}\s+(.+)$/gm, "\n$1\n")
+    // Convert bullet points to separate lines with spacing
+    .replace(/^\s*[-*+]\s+(.+)$/gm, "$1\n")
+    // Convert numbered lists to separate lines with spacing
+    .replace(/^\s*\d+\.\s+(.+)$/gm, "$1\n")
     // Remove code blocks
     .replace(/```[\s\S]*?```/g, "")
     .replace(/`(.+?)`/g, "$1")
-    // Clean up extra whitespace
+    // Clean up excessive whitespace but keep paragraph breaks
     .replace(/\n{3,}/g, "\n\n")
     .trim();
 }
