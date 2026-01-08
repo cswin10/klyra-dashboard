@@ -403,26 +403,33 @@ def is_casual_query(query: str) -> bool:
     """
     query_lower = query.lower().strip()
 
-    # Greetings and farewells
-    casual_patterns = [
+    # Patterns that match at start of query
+    start_patterns = [
         "hi", "hello", "hey", "good morning", "good afternoon", "good evening",
         "bye", "goodbye", "see you", "thanks", "thank you", "thank",
-        # Emotional/conversational
         "how are you", "what's up", "whats up", "how's it going",
-        "i'm feeling", "i feel", "i am feeling", "feeling",
-        "stressed", "anxious", "nervous", "excited", "happy", "sad", "worried",
-        "help me", "support", "encourage", "motivate",
-        # Casual chat
-        "cool", "nice", "awesome", "great", "okay", "ok", "sure", "yes", "no",
+        "i'm feeling", "i feel", "i am feeling",
+        "help me", "i need help", "can you help",
         "i think", "i believe", "in my opinion", "imo",
-        # Requests for opinion/advice (not factual)
         "what do you think", "your thoughts", "your opinion",
-        "should i", "do you think",
+        "should i", "do you think", "i am", "i'm",
     ]
 
-    # Check if query starts with or contains casual patterns
-    for pattern in casual_patterns:
-        if query_lower.startswith(pattern) or query_lower == pattern:
+    # Patterns that match anywhere in query (emotional/mood words)
+    contains_patterns = [
+        "stressed", "anxious", "nervous", "excited", "happy", "sad", "worried",
+        "feeling", "overwhelmed", "tired", "exhausted", "frustrated",
+        "scared", "afraid", "upset", "confused", "lost",
+    ]
+
+    # Check start patterns
+    for pattern in start_patterns:
+        if query_lower.startswith(pattern):
+            return True
+
+    # Check contains patterns (emotional words)
+    for pattern in contains_patterns:
+        if pattern in query_lower:
             return True
 
     # Very short queries are often casual
@@ -1343,7 +1350,8 @@ async def query_with_rag(
         metadata["used_general_knowledge"] = True
         metadata["is_user_content"] = True
         prompt, doc_names = build_prompt_with_context(query, [], conversation_history, use_general_knowledge=True)
-        return prompt, doc_names, [], metadata
+        system_prompt = build_system_prompt([], use_general_knowledge=True)
+        return prompt, doc_names, [], metadata, system_prompt
 
     # Detect query category for logging/analytics
     query_category = detect_query_category(query)
@@ -1362,7 +1370,8 @@ async def query_with_rag(
         logger.info("No documents in database, using general knowledge")
         prompt, doc_names = build_prompt_with_context(query, [], conversation_history, use_general_knowledge=True)
         metadata["used_general_knowledge"] = True
-        return prompt, doc_names, [], metadata
+        system_prompt = build_system_prompt([], use_general_knowledge=True)
+        return prompt, doc_names, [], metadata, system_prompt
 
     # Enhance query with conversation context for better search
     # e.g., "who is kieren" becomes "who is kieren Klyra Labs" if discussing Klyra
@@ -1438,14 +1447,23 @@ def build_system_prompt(chunks: List[Tuple[str, str, float]], use_general_knowle
     """
     identity = """You are Klyra, a friendly AI assistant created by Klyra Labs.
 
-IDENTITY: Only mention if directly asked "who are you" or "who made you". Your name is Klyra, created by Klyra Labs. Never claim to be made by any other company.
+IDENTITY: Only mention if directly asked "who are you" or "who made you". Your name is Klyra, created by Klyra Labs.
 
-FORMATTING - THIS IS CRITICAL:
-- Do NOT use markdown: no **, ##, ###, *, or bullet points
-- Do NOT use numbered lists unless specifically asked
-- Write in plain, natural paragraphs like a normal conversation
-- Never use LaTeX, code blocks, or special formatting
-- Keep responses concise and conversational"""
+CRITICAL FORMATTING RULES - YOU MUST FOLLOW THESE:
+1. NEVER use asterisks (*) for bold or bullets
+2. NEVER use hash symbols (#) for headers
+3. NEVER use numbered lists (1. 2. 3.)
+4. NEVER use bullet points of any kind
+5. Write everything as plain flowing text in paragraphs
+6. Just talk naturally like a human would in a text message or email
+
+WRONG: "Here are some tips: 1. **Take a break** 2. **Exercise**"
+RIGHT: "Taking a break can really help. Going for a walk or doing some exercise is also great for clearing your head."
+
+WRONG: "## Great restaurants\\n- The Malt House\\n- Tuscan Kitchen"
+RIGHT: "The Malt House is lovely for British food. If you want Italian, try Tuscan Kitchen."
+
+Always use this natural, conversational style."""
 
     if use_general_knowledge or not chunks:
         return f"""{identity}
