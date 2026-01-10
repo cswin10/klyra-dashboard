@@ -30,6 +30,12 @@ export default function DocumentsPage() {
     message: string;
   }>({ isOpen: false, type: "info", title: "", message: "" });
 
+  // Delete confirmation state
+  const [deleteConfirm, setDeleteConfirm] = useState<{
+    isOpen: boolean;
+    doc: Document | null;
+  }>({ isOpen: false, doc: null });
+
   // Search state
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<DocumentSearchResult[]>([]);
@@ -164,7 +170,7 @@ export default function DocumentsPage() {
     }
   };
 
-  const handleDelete = async (doc: Document) => {
+  const handleDelete = (doc: Document) => {
     // Check permissions
     if (!isAdmin && doc.is_company_wide) {
       setPopup({
@@ -176,7 +182,15 @@ export default function DocumentsPage() {
       return;
     }
 
-    if (!confirm(`Are you sure you want to delete "${doc.name}"?`)) return;
+    // Show confirmation popup
+    setDeleteConfirm({ isOpen: true, doc });
+  };
+
+  const confirmDelete = async () => {
+    const doc = deleteConfirm.doc;
+    if (!doc) return;
+
+    setDeleteConfirm({ isOpen: false, doc: null });
 
     try {
       await api.deleteDocument(doc.id);
@@ -615,6 +629,19 @@ export default function DocumentsPage() {
         type={popup.type}
         title={popup.title}
         message={popup.message}
+      />
+
+      {/* Delete Confirmation Popup */}
+      <Popup
+        isOpen={deleteConfirm.isOpen}
+        onClose={() => setDeleteConfirm({ isOpen: false, doc: null })}
+        type="warning"
+        title="Delete Document"
+        message={`Are you sure you want to delete "${deleteConfirm.doc?.name}"? This action cannot be undone.`}
+        actionLabel="Delete"
+        onAction={confirmDelete}
+        secondaryLabel="Cancel"
+        onSecondary={() => setDeleteConfirm({ isOpen: false, doc: null })}
       />
 
       {/* Version History Modal */}
