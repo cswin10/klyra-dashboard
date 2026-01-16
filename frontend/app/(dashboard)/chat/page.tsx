@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useState, useRef, useCallback, useMemo } from "react";
-import { Plus, MessageSquare, Trash2, Download, FileText, Mail, HelpCircle, GitCompare, Search, List, X } from "lucide-react";
+import { Plus, MessageSquare, Trash2, Download, FileText, Mail, HelpCircle, GitCompare, Search, List, X, PanelLeftClose, PanelLeft } from "lucide-react";
 import { ChatMessage, ChatInput, SmartSuggestions } from "@/components";
 import { api, ChatListItem, Message, PromptTemplate } from "@/lib/api";
 import { cn, formatRelativeTime, truncate } from "@/lib/utils";
@@ -35,6 +35,7 @@ export default function ChatPage() {
   const [draftMessage, setDraftMessage] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<{ chatId: string; matchType: "title" | "content" }[]>([]);
+  const [isChatSidebarOpen, setIsChatSidebarOpen] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -282,17 +283,39 @@ export default function ChatPage() {
   };
 
   return (
-    <div className="flex h-[calc(100vh-64px)] -m-page-padding">
-      {/* Chat History Sidebar */}
-      <div className="w-72 border-r border-card-border bg-sidebar-bg flex flex-col">
+    <div className="flex h-[calc(100vh-64px)] lg:h-[calc(100vh-64px)] -m-4 sm:-m-6 lg:-m-page-padding relative">
+      {/* Mobile overlay when sidebar is open */}
+      {isChatSidebarOpen && (
+        <div
+          className="md:hidden fixed inset-0 bg-black/50 z-20"
+          onClick={() => setIsChatSidebarOpen(false)}
+        />
+      )}
+
+      {/* Chat History Sidebar - collapsible on mobile */}
+      <div className={cn(
+        "fixed md:relative inset-y-0 left-0 z-30 md:z-auto",
+        "w-72 border-r border-card-border bg-sidebar-bg flex flex-col",
+        "transition-transform duration-300 ease-in-out md:translate-x-0",
+        isChatSidebarOpen ? "translate-x-0" : "-translate-x-full"
+      )}>
         <div className="p-4 border-b border-card-border space-y-3">
-          <button
-            onClick={handleNewChat}
-            className="w-full flex items-center justify-center gap-2 py-2.5 px-4 bg-accent text-page-bg rounded-lg font-medium hover:bg-accent-hover transition-colors"
-          >
-            <Plus className="h-4 w-4" />
-            New Chat
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleNewChat}
+              className="flex-1 flex items-center justify-center gap-2 py-2.5 px-4 bg-accent text-page-bg rounded-lg font-medium hover:bg-accent-hover transition-colors"
+            >
+              <Plus className="h-4 w-4" />
+              New Chat
+            </button>
+            {/* Mobile close button */}
+            <button
+              onClick={() => setIsChatSidebarOpen(false)}
+              className="md:hidden p-2.5 bg-card-bg border border-card-border rounded-lg text-text-secondary hover:text-text-primary"
+            >
+              <PanelLeftClose className="h-4 w-4" />
+            </button>
+          </div>
 
           {/* Search Input */}
           <div className="relative">
@@ -330,7 +353,10 @@ export default function ChatPage() {
               return (
                 <div
                   key={chat.id}
-                  onClick={() => setActiveChatId(chat.id)}
+                  onClick={() => {
+                    setActiveChatId(chat.id);
+                    setIsChatSidebarOpen(false);
+                  }}
                   className={cn(
                     "group flex items-center gap-3 p-3 rounded-lg cursor-pointer transition-colors",
                     activeChatId === chat.id
@@ -364,7 +390,7 @@ export default function ChatPage() {
       </div>
 
       {/* Chat Interface */}
-      <div className="flex-1 flex flex-col">
+      <div className="flex-1 flex flex-col md:ml-0">
         {!activeChatId ? (
           <div className="flex-1 flex items-center justify-center">
             <div className="text-center">
@@ -380,22 +406,32 @@ export default function ChatPage() {
         ) : (
           <>
             {/* Chat Header with Export */}
-            <div className="flex items-center justify-between px-6 py-3 border-b border-card-border bg-card-bg/50">
-              <h2 className="font-medium text-text-primary truncate">
-                {chats.find(c => c.id === activeChatId)?.title || "New Chat"}
-              </h2>
+            <div className="flex items-center justify-between px-4 md:px-6 py-3 border-b border-card-border bg-card-bg/50">
+              <div className="flex items-center gap-3 min-w-0">
+                {/* Mobile sidebar toggle */}
+                <button
+                  onClick={() => setIsChatSidebarOpen(true)}
+                  className="md:hidden p-1.5 text-text-secondary hover:text-text-primary transition-colors"
+                  aria-label="Open chat history"
+                >
+                  <PanelLeft className="h-5 w-5" />
+                </button>
+                <h2 className="font-medium text-text-primary truncate">
+                  {chats.find(c => c.id === activeChatId)?.title || "New Chat"}
+                </h2>
+              </div>
               <button
                 onClick={handleExportChat}
                 className="flex items-center gap-2 px-3 py-1.5 text-sm text-text-secondary hover:text-text-primary hover:bg-card-bg rounded-lg transition-colors"
                 title="Export to PDF"
               >
                 <Download className="h-4 w-4" />
-                Export
+                <span className="hidden sm:inline">Export</span>
               </button>
             </div>
 
             {/* Messages Area */}
-            <div className="flex-1 overflow-y-auto p-6 space-y-4">
+            <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-4">
               {isLoadingMessages ? (
                 <div className="flex items-center justify-center h-full">
                   <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-accent"></div>
