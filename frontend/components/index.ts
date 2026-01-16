@@ -11,3 +11,4 @@ export { DocumentUpload } from "./DocumentUpload";
 export { ChatMessage } from "./ChatMessage";
 export { ChatInput } from "./ChatInput";
 export { ErrorBoundary } from "./ErrorBoundary";
+export { CommandPalette } from "./CommandPalette";
