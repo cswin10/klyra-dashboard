@@ -1,11 +1,12 @@
 "use client";
 
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
-import { Menu, X } from "lucide-react";
+import { Menu } from "lucide-react";
 import { Sidebar, ErrorBoundary, CommandPalette } from "@/components";
 import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/utils";
+import { useKeyboardShortcuts } from "@/lib/useKeyboardShortcuts";
 
 export default function DashboardLayout({
   children,
@@ -29,22 +30,41 @@ export default function DashboardLayout({
     setIsMobileMenuOpen(false);
   }, [pathname]);
 
-  // Cmd+K / Ctrl+K keyboard shortcut
-  const handleKeyDown = useCallback((e: KeyboardEvent) => {
-    if ((e.metaKey || e.ctrlKey) && e.key === "k") {
-      e.preventDefault();
-      setIsCommandPaletteOpen((prev) => !prev);
-    }
-    // Escape closes mobile menu
-    if (e.key === "Escape" && isMobileMenuOpen) {
-      setIsMobileMenuOpen(false);
-    }
-  }, [isMobileMenuOpen]);
-
-  useEffect(() => {
-    document.addEventListener("keydown", handleKeyDown);
-    return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [handleKeyDown]);
+  // Keyboard shortcuts
+  useKeyboardShortcuts({
+    shortcuts: [
+      {
+        key: "k",
+        meta: true,
+        action: () => setIsCommandPaletteOpen((prev) => !prev),
+        description: "Open command palette",
+      },
+      {
+        key: "k",
+        ctrl: true,
+        action: () => setIsCommandPaletteOpen((prev) => !prev),
+        description: "Open command palette (Windows)",
+      },
+      {
+        key: "Escape",
+        action: () => {
+          if (isCommandPaletteOpen) {
+            setIsCommandPaletteOpen(false);
+          } else if (isMobileMenuOpen) {
+            setIsMobileMenuOpen(false);
+          }
+        },
+        description: "Close modal/menu",
+      },
+      {
+        key: "g",
+        meta: true,
+        action: () => router.push("/chat"),
+        description: "Go to chat",
+      },
+    ],
+    enabled: isAuthenticated,
+  });
 
   // Prevent body scroll when mobile menu is open
   useEffect(() => {
