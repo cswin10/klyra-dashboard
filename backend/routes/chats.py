@@ -56,6 +56,51 @@ async def get_chats(
     return [ChatListResponse.model_validate(chat) for chat in chats]
 
 
+@router.get("/search")
+async def search_chats(
+    q: str,
+    current_user: CurrentUser = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Search chats by title and message content."""
+    search_term = f"%{q.lower()}%"
+    results = []
+    seen_ids = set()
+
+    # Search in chat titles
+    title_matches = db.query(Chat).filter(
+        Chat.user_id == current_user.id,
+        Chat.title.ilike(search_term)
+    ).all()
+
+    for chat in title_matches:
+        results.append({
+            "id": chat.id,
+            "title": chat.title,
+            "match_type": "title"
+        })
+        seen_ids.add(chat.id)
+
+    # Search in message content
+    message_matches = db.query(Message).join(Chat).filter(
+        Chat.user_id == current_user.id,
+        Message.content.ilike(search_term)
+    ).all()
+
+    for msg in message_matches:
+        if msg.chat_id not in seen_ids:
+            chat = db.query(Chat).get(msg.chat_id)
+            if chat:
+                results.append({
+                    "id": chat.id,
+                    "title": chat.title,
+                    "match_type": "content"
+                })
+                seen_ids.add(chat.id)
+
+    return results[:20]
+
+
 @router.post("", response_model=ChatResponse)
 async def create_chat(
     request: ChatCreate,

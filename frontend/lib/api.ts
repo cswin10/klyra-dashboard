@@ -294,6 +294,10 @@ class ApiClient {
     return this.request("/api/chats");
   }
 
+  async searchChats(query: string): Promise<{ id: string; title: string | null; match_type: "title" | "content" }[]> {
+    return this.request(`/api/chats/search?q=${encodeURIComponent(query)}`);
+  }
+
   async createChat(): Promise<Chat> {
     return this.request("/api/chats", { method: "POST", body: JSON.stringify({}) });
   }
