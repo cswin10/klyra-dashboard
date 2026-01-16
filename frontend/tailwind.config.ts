@@ -9,18 +9,21 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        // Background colors - pure blacks
-        "page-bg": "#000000",
-        "sidebar-bg": "#050508",
-        "card-bg": "rgba(15, 15, 20, 0.6)",
-        "card-border": "rgba(255, 255, 255, 0.08)",
-        "icon-bg": "rgba(255, 255, 255, 0.05)",
-        "input-bg": "rgba(0, 0, 0, 0.4)",
-        "input-border": "rgba(255, 255, 255, 0.1)",
+        // Background colors - dark theme
+        "page-bg": "#0a0a0f",
+        "sidebar": "#0d0d12",
+        "sidebar-bg": "#0d0d12",
+        "card-bg": "#12121a",
+        "card-border": "#252530",
+        "border-card": "#252530",
+        "icon-bg": "#1e1e2a",
+        "input-bg": "#1a1a24",
+        "input-border": "#35354a",
 
-        // Accent colors - silver and navy
+        // Accent colors - silver brand
         "accent": "#c0c0c0",
-        "accent-hover": "#e8e8e8",
+        "accent-hover": "#e0e0e0",
+        "accent-muted": "#808090",
         "silver": "#c0c0c0",
         "silver-bright": "#f0f0f0",
         "navy": "#1a365d",
@@ -28,13 +31,14 @@ const config: Config = {
         "navy-glow": "#3d5a9f",
 
         // Status colors
-        "status-green": "#00ff88",
-        "status-yellow": "#ffcc00",
-        "status-red": "#ff4466",
+        "status-green": "#22c55e",
+        "status-yellow": "#eab308",
+        "status-red": "#ef4444",
+        "status-blue": "#3b82f6",
 
         // Text colors
         "text-primary": "#ffffff",
-        "text-secondary": "#a0a0b0",
+        "text-secondary": "#9898a8",
         "text-muted": "#606070",
       },
       fontFamily: {

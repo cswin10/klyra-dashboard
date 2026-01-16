@@ -8,12 +8,14 @@ import {
   LayoutGrid,
   MessageSquare,
   FileText,
+  BarChart3,
   Users,
   Server,
   List,
   Settings,
   Wifi,
   WifiOff,
+  X,
 } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { cn, getInitials } from "@/lib/utils";
@@ -23,6 +25,7 @@ const navigation = [
   { name: "Overview", href: "/overview", icon: LayoutGrid },
   { name: "Chat", href: "/chat", icon: MessageSquare },
   { name: "Documents", href: "/documents", icon: FileText },
+  { name: "Analytics", href: "/analytics", icon: BarChart3 },
   { name: "Users", href: "/users", icon: Users, adminOnly: true },
   { name: "System", href: "/system", icon: Server, adminOnly: true },
   { name: "Logs", href: "/logs", icon: List, adminOnly: true },
@@ -31,7 +34,11 @@ const navigation = [
 
 type OllamaStatus = "checking" | "running" | "not running" | "offline";
 
-export function Sidebar() {
+interface SidebarProps {
+  onClose?: () => void;
+}
+
+export function Sidebar({ onClose }: SidebarProps) {
   const pathname = usePathname();
   const { user, isAdmin } = useAuth();
   const [ollamaStatus, setOllamaStatus] = useState<OllamaStatus>("checking");
@@ -60,19 +67,31 @@ export function Sidebar() {
     <aside className="fixed left-0 top-0 h-full w-sidebar bg-black/80 backdrop-blur-xl border-r border-white/5 flex flex-col">
       {/* Logo */}
       <div className="p-6 border-b border-white/5">
-        <Link href="/overview" className="flex items-center gap-3 group">
-          <div className="relative w-8 h-8 transition-transform duration-300 group-hover:scale-110">
-            <Image
-              src="/klyra-icon.png"
-              alt="Klyra"
-              fill
-              className="object-contain drop-shadow-[0_0_8px_rgba(192,192,192,0.3)] group-hover:drop-shadow-[0_0_12px_rgba(192,192,192,0.5)]"
-            />
-          </div>
-          <span className="text-xl font-semibold text-white tracking-tight">
-            Klyra Labs
-          </span>
-        </Link>
+        <div className="flex items-center justify-between">
+          <Link href="/overview" className="flex items-center gap-3 group" onClick={onClose}>
+            <div className="relative w-8 h-8 transition-transform duration-300 group-hover:scale-110">
+              <Image
+                src="/klyra-icon.png"
+                alt="Klyra"
+                fill
+                className="object-contain drop-shadow-[0_0_8px_rgba(192,192,192,0.3)] group-hover:drop-shadow-[0_0_12px_rgba(192,192,192,0.5)]"
+              />
+            </div>
+            <span className="text-xl font-semibold text-white tracking-tight">
+              Klyra Labs
+            </span>
+          </Link>
+          {/* Mobile close button */}
+          {onClose && (
+            <button
+              onClick={onClose}
+              className="lg:hidden p-2 -mr-2 text-text-secondary hover:text-text-primary transition-colors"
+              aria-label="Close menu"
+            >
+              <X className="h-5 w-5" />
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Navigation */}
@@ -85,6 +104,7 @@ export function Sidebar() {
             <Link
               key={item.name}
               href={item.href}
+              onClick={onClose}
               className={cn(
                 "nav-item flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-300",
                 isActive

@@ -1,8 +1,8 @@
 "use client";
 
-import React, { useEffect, useState, useRef, useCallback } from "react";
-import { Plus, MessageSquare, Trash2, Download, FileText, Mail, HelpCircle, GitCompare, Search, List } from "lucide-react";
-import { ChatMessage, ChatInput } from "@/components";
+import React, { useEffect, useState, useRef, useCallback, useMemo } from "react";
+import { Plus, MessageSquare, Trash2, Download, FileText, Mail, HelpCircle, GitCompare, Search, List, X, PanelLeftClose, PanelLeft } from "lucide-react";
+import { ChatMessage, ChatInput, SmartSuggestions } from "@/components";
 import { api, ChatListItem, Message, PromptTemplate } from "@/lib/api";
 import { cn, formatRelativeTime, truncate } from "@/lib/utils";
 
@@ -33,6 +33,9 @@ export default function ChatPage() {
   const [isSending, setIsSending] = useState(false);
   const [templates, setTemplates] = useState<PromptTemplate[]>([]);
   const [draftMessage, setDraftMessage] = useState("");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState<{ chatId: string; matchType: "title" | "content" }[]>([]);
+  const [isChatSidebarOpen, setIsChatSidebarOpen] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -69,6 +72,39 @@ export default function ChatPage() {
     fetchChats();
     fetchTemplates();
   }, []);
+
+  // Debounced search
+  useEffect(() => {
+    if (!searchQuery.trim()) {
+      setSearchResults([]);
+      return;
+    }
+
+    const timer = setTimeout(async () => {
+      try {
+        const results = await api.searchChats(searchQuery);
+        setSearchResults(results.map((r: { id: string; match_type: "title" | "content" }) => ({
+          chatId: r.id,
+          matchType: r.match_type
+        })));
+      } catch (error) {
+        // Fallback to client-side filtering if API not available
+        const filtered = chats.filter(chat =>
+          chat.title?.toLowerCase().includes(searchQuery.toLowerCase())
+        );
+        setSearchResults(filtered.map(c => ({ chatId: c.id, matchType: "title" as const })));
+      }
+    }, 300);
+
+    return () => clearTimeout(timer);
+  }, [searchQuery, chats]);
+
+  // Filter chats based on search
+  const displayedChats = useMemo(() => {
+    if (!searchQuery.trim()) return chats;
+    const matchedIds = new Set(searchResults.map(r => r.chatId));
+    return chats.filter(chat => matchedIds.has(chat.id));
+  }, [chats, searchQuery, searchResults]);
 
   // Load messages when active chat changes
   useEffect(() => {
@@ -247,17 +283,59 @@ export default function ChatPage() {
   };
 
   return (
-    <div className="flex h-[calc(100vh-64px)] -m-page-padding">
-      {/* Chat History Sidebar */}
-      <div className="w-72 border-r border-card-border bg-sidebar-bg flex flex-col">
-        <div className="p-4 border-b border-card-border">
-          <button
-            onClick={handleNewChat}
-            className="w-full flex items-center justify-center gap-2 py-2.5 px-4 bg-accent text-page-bg rounded-lg font-medium hover:bg-accent-hover transition-colors"
-          >
-            <Plus className="h-4 w-4" />
-            New Chat
-          </button>
+    <div className="flex h-[calc(100vh-64px)] lg:h-[calc(100vh-64px)] -m-4 sm:-m-6 lg:-m-page-padding relative">
+      {/* Mobile overlay when sidebar is open */}
+      {isChatSidebarOpen && (
+        <div
+          className="md:hidden fixed inset-0 bg-black/50 z-20"
+          onClick={() => setIsChatSidebarOpen(false)}
+        />
+      )}
+
+      {/* Chat History Sidebar - collapsible on mobile */}
+      <div className={cn(
+        "fixed md:relative inset-y-0 left-0 z-30 md:z-auto",
+        "w-72 border-r border-card-border bg-sidebar-bg flex flex-col",
+        "transition-transform duration-300 ease-in-out md:translate-x-0",
+        isChatSidebarOpen ? "translate-x-0" : "-translate-x-full"
+      )}>
+        <div className="p-4 border-b border-card-border space-y-3">
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleNewChat}
+              className="flex-1 flex items-center justify-center gap-2 py-2.5 px-4 bg-accent text-page-bg rounded-lg font-medium hover:bg-accent-hover transition-colors"
+            >
+              <Plus className="h-4 w-4" />
+              New Chat
+            </button>
+            {/* Mobile close button */}
+            <button
+              onClick={() => setIsChatSidebarOpen(false)}
+              className="md:hidden p-2.5 bg-card-bg border border-card-border rounded-lg text-text-secondary hover:text-text-primary"
+            >
+              <PanelLeftClose className="h-4 w-4" />
+            </button>
+          </div>
+
+          {/* Search Input */}
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-text-muted" />
+            <input
+              type="text"
+              placeholder="Search chats..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full pl-9 pr-8 py-2 bg-input-bg border border-input-border rounded-lg text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent/50"
+            />
+            {searchQuery && (
+              <button
+                onClick={() => setSearchQuery("")}
+                className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-text-muted hover:text-text-primary"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            )}
+          </div>
         </div>
 
         <div className="flex-1 overflow-y-auto p-2 space-y-1">
@@ -265,45 +343,54 @@ export default function ChatPage() {
             <div className="flex items-center justify-center py-8">
               <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-accent"></div>
             </div>
-          ) : chats.length === 0 ? (
+          ) : displayedChats.length === 0 ? (
             <div className="text-center py-8 text-text-secondary text-sm">
-              No chats yet. Start a new conversation!
+              {searchQuery ? "No matching chats found" : "No chats yet. Start a new conversation!"}
             </div>
           ) : (
-            chats.map((chat) => (
-              <div
-                key={chat.id}
-                onClick={() => setActiveChatId(chat.id)}
-                className={cn(
-                  "group flex items-center gap-3 p-3 rounded-lg cursor-pointer transition-colors",
-                  activeChatId === chat.id
-                    ? "bg-card-bg text-text-primary"
-                    : "text-text-secondary hover:bg-card-bg/50 hover:text-text-primary"
-                )}
-              >
-                <MessageSquare className="h-4 w-4 flex-shrink-0" />
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm truncate">
-                    {chat.title || "New Chat"}
-                  </p>
-                  <p className="text-xs text-text-muted">
-                    {formatRelativeTime(chat.updated_at)}
-                  </p>
-                </div>
-                <button
-                  onClick={(e) => handleDeleteChat(chat.id, e)}
-                  className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-status-red/10 hover:text-status-red transition-all"
+            displayedChats.map((chat) => {
+              const searchMatch = searchResults.find(r => r.chatId === chat.id);
+              return (
+                <div
+                  key={chat.id}
+                  onClick={() => {
+                    setActiveChatId(chat.id);
+                    setIsChatSidebarOpen(false);
+                  }}
+                  className={cn(
+                    "group flex items-center gap-3 p-3 rounded-lg cursor-pointer transition-colors",
+                    activeChatId === chat.id
+                      ? "bg-card-bg text-text-primary"
+                      : "text-text-secondary hover:bg-card-bg/50 hover:text-text-primary"
+                  )}
                 >
-                  <Trash2 className="h-3.5 w-3.5" />
-                </button>
-              </div>
-            ))
+                  <MessageSquare className="h-4 w-4 flex-shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm truncate">
+                      {chat.title || "New Chat"}
+                    </p>
+                    <p className="text-xs text-text-muted">
+                      {formatRelativeTime(chat.updated_at)}
+                      {searchMatch?.matchType === "content" && (
+                        <span className="ml-1 text-accent">• in messages</span>
+                      )}
+                    </p>
+                  </div>
+                  <button
+                    onClick={(e) => handleDeleteChat(chat.id, e)}
+                    className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-status-red/10 hover:text-status-red transition-all"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              );
+            })
           )}
         </div>
       </div>
 
       {/* Chat Interface */}
-      <div className="flex-1 flex flex-col">
+      <div className="flex-1 flex flex-col md:ml-0">
         {!activeChatId ? (
           <div className="flex-1 flex items-center justify-center">
             <div className="text-center">
@@ -319,22 +406,32 @@ export default function ChatPage() {
         ) : (
           <>
             {/* Chat Header with Export */}
-            <div className="flex items-center justify-between px-6 py-3 border-b border-card-border bg-card-bg/50">
-              <h2 className="font-medium text-text-primary truncate">
-                {chats.find(c => c.id === activeChatId)?.title || "New Chat"}
-              </h2>
+            <div className="flex items-center justify-between px-4 md:px-6 py-3 border-b border-card-border bg-card-bg/50">
+              <div className="flex items-center gap-3 min-w-0">
+                {/* Mobile sidebar toggle */}
+                <button
+                  onClick={() => setIsChatSidebarOpen(true)}
+                  className="md:hidden p-1.5 text-text-secondary hover:text-text-primary transition-colors"
+                  aria-label="Open chat history"
+                >
+                  <PanelLeft className="h-5 w-5" />
+                </button>
+                <h2 className="font-medium text-text-primary truncate">
+                  {chats.find(c => c.id === activeChatId)?.title || "New Chat"}
+                </h2>
+              </div>
               <button
                 onClick={handleExportChat}
                 className="flex items-center gap-2 px-3 py-1.5 text-sm text-text-secondary hover:text-text-primary hover:bg-card-bg rounded-lg transition-colors"
                 title="Export to PDF"
               >
                 <Download className="h-4 w-4" />
-                Export
+                <span className="hidden sm:inline">Export</span>
               </button>
             </div>
 
             {/* Messages Area */}
-            <div className="flex-1 overflow-y-auto p-6 space-y-4">
+            <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-4">
               {isLoadingMessages ? (
                 <div className="flex items-center justify-center h-full">
                   <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-accent"></div>
@@ -369,16 +466,31 @@ export default function ChatPage() {
                   </div>
                 </div>
               ) : (
-                messages.map((message) => (
-                  <ChatMessage
-                    key={message.id}
-                    messageId={message.id.startsWith("temp-") ? undefined : message.id}
-                    role={message.role}
-                    content={message.content}
-                    sources={message.sources}
-                    isStreaming={message.isStreaming}
-                  />
-                ))
+                <>
+                  {messages.map((message) => (
+                    <ChatMessage
+                      key={message.id}
+                      messageId={message.id.startsWith("temp-") ? undefined : message.id}
+                      role={message.role}
+                      content={message.content}
+                      sources={message.sources}
+                      isStreaming={message.isStreaming}
+                    />
+                  ))}
+                  {/* Smart Suggestions after last assistant message */}
+                  {messages.length > 0 &&
+                    messages[messages.length - 1].role === "assistant" &&
+                    !messages[messages.length - 1].isStreaming && (
+                      <SmartSuggestions
+                        lastAssistantMessage={messages[messages.length - 1].content}
+                        sources={messages[messages.length - 1].sources}
+                        onSuggestionClick={(prompt) => {
+                          setDraftMessage(prompt);
+                        }}
+                        disabled={isSending}
+                      />
+                    )}
+                </>
               )}
               <div ref={messagesEndRef} />
             </div>

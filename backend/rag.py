@@ -1319,6 +1319,52 @@ def is_user_provided_content(query: str) -> bool:
     return False
 
 
+def get_available_documents_info() -> List[Dict]:
+    """
+    Get list of available documents from ChromaDB with their categories.
+    """
+    try:
+        all_data = collection.get(include=["metadatas"])
+        if not all_data or not all_data["metadatas"]:
+            return []
+
+        # Collect unique documents with their categories
+        docs = {}
+        for meta in all_data["metadatas"]:
+            doc_name = meta.get("document_name", "unknown")
+            category = meta.get("category", "general")
+            if doc_name not in docs:
+                docs[doc_name] = {"name": doc_name, "category": category}
+
+        return list(docs.values())
+    except Exception as e:
+        logger.error(f"Error getting available documents: {e}")
+        return []
+
+
+def build_document_list_prompt(documents: List[Dict]) -> str:
+    """
+    Build a system prompt for document list queries.
+    """
+    if not documents:
+        return """You are Klyra, the AI assistant built by Klyra Labs.
+
+The user is asking what documents you have access to, but no documents have been uploaded yet.
+
+Tell the user that the knowledge base is currently empty and they can ask an admin to upload company documents."""
+
+    doc_list = "\n".join([f"- {doc['name']} ({doc['category']})" for doc in documents])
+
+    return f"""You are Klyra, the AI assistant built by Klyra Labs.
+
+The user is asking what documents you have access to. Here are the documents currently available in your knowledge base:
+
+{doc_list}
+
+Tell the user about these documents in a helpful way. Briefly explain what topics they might cover based on their names and categories.
+Write in plain text without markdown formatting."""
+
+
 async def query_with_rag(
     query: str,
     conversation_history: List[dict] = None,
@@ -1352,8 +1398,19 @@ async def query_with_rag(
         "ambiguous_docs": [],
         "query_category": None,
         "used_general_knowledge": False,
-        "is_user_content": False
+        "is_user_content": False,
+        "is_document_list_query": False
     }
+
+    # Check if user is asking what documents are available
+    if is_document_list_query(query):
+        logger.info("Document list query detected")
+        metadata["is_document_list_query"] = True
+        available_docs = get_available_documents_info()
+        doc_names = [d["name"] for d in available_docs]
+        system_prompt = build_document_list_prompt(available_docs)
+        # Return with empty chunks - this is a meta-query, not a search
+        return f"User question: {query}", doc_names, [], metadata, system_prompt
 
     # Check if query contains user-provided content (pasted emails, articles, etc.)
     # These should use general knowledge, not document search
@@ -1362,7 +1419,7 @@ async def query_with_rag(
         metadata["used_general_knowledge"] = True
         metadata["is_user_content"] = True
         prompt, doc_names = build_prompt_with_context(query, [], conversation_history, use_general_knowledge=True)
-        system_prompt = build_system_prompt([], use_general_knowledge=True)
+        system_prompt = build_system_prompt([], conversation_history, is_followup=False, use_general_knowledge=True)
         return prompt, doc_names, [], metadata, system_prompt
 
     # Detect query category for logging/analytics
@@ -1382,7 +1439,7 @@ async def query_with_rag(
         logger.info("No documents in database, using general knowledge")
         prompt, doc_names = build_prompt_with_context(query, [], conversation_history, use_general_knowledge=True)
         metadata["used_general_knowledge"] = True
-        system_prompt = build_system_prompt([], use_general_knowledge=True)
+        system_prompt = build_system_prompt([], conversation_history, is_followup=False, use_general_knowledge=True)
         return prompt, doc_names, [], metadata, system_prompt
 
     # Enhance query with conversation context for better search
@@ -1437,6 +1494,11 @@ async def query_with_rag(
     use_general = len(relevant_chunks) == 0
     metadata["used_general_knowledge"] = use_general
 
+    # Detect if this is a follow-up question
+    followup = is_followup_query(query)
+    if followup:
+        logger.info("Detected follow-up query")
+
     prompt, doc_names = build_prompt_with_context(
         query,
         relevant_chunks,
@@ -1445,72 +1507,167 @@ async def query_with_rag(
     )
 
     # Also build system prompt for chat API (without embedded history)
-    system_prompt = build_system_prompt(relevant_chunks, use_general_knowledge=use_general)
+    system_prompt = build_system_prompt(
+        relevant_chunks,
+        conversation_history,
+        is_followup=followup,
+        use_general_knowledge=use_general
+    )
 
     return prompt, doc_names, relevant_chunks, metadata, system_prompt
 
 
-def build_system_prompt(chunks: List[Tuple[str, str, float]], use_general_knowledge: bool = False) -> str:
+def is_document_list_query(query: str) -> bool:
     """
-    Build a system prompt for the chat API.
-
-    This contains the assistant identity and document context,
-    but NOT the conversation history (that's handled by the messages array).
+    Detect if user is asking what documents are available.
     """
-    identity = """You are Klyra, a friendly AI assistant created by Klyra Labs.
+    query_lower = query.lower()
+    patterns = [
+        "what documents",
+        "which documents",
+        "what files",
+        "which files",
+        "list documents",
+        "list files",
+        "show documents",
+        "show files",
+        "available documents",
+        "what do you have",
+        "what's in your knowledge",
+        "what information do you have",
+        "what can you tell me about",
+        "what topics",
+        "what subjects",
+    ]
+    return any(p in query_lower for p in patterns)
 
-IDENTITY: Only mention if directly asked "who are you" or "who made you". Your name is Klyra, created by Klyra Labs.
 
-CRITICAL FORMATTING RULES - YOU MUST FOLLOW THESE:
-1. NEVER use asterisks (*) for bold or bullets
-2. NEVER use hash symbols (#) for headers
-3. NEVER use numbered lists (1. 2. 3.)
-4. NEVER use bullet points of any kind
-5. Write everything as plain flowing text in paragraphs
-6. Just talk naturally like a human would in a text message or email
+def is_followup_query(query: str) -> bool:
+    """
+    Detect if user is asking a follow-up about a previous response.
+    """
+    query_lower = query.lower().strip()
+    patterns = [
+        "can you explain",
+        "explain that",
+        "what do you mean",
+        "tell me more",
+        "elaborate",
+        "can you clarify",
+        "i don't understand",
+        "say that again",
+        "rephrase",
+        "simplify",
+        "in simpler terms",
+        "what does that mean",
+        "why is that",
+        "how so",
+        "expand on",
+    ]
+    return any(p in query_lower for p in patterns)
 
-WRONG: "Here are some tips: 1. **Take a break** 2. **Exercise**"
-RIGHT: "Taking a break can really help. Going for a walk or doing some exercise is also great for clearing your head."
 
-WRONG: "## Great restaurants\\n- The Malt House\\n- Tuscan Kitchen"
-RIGHT: "The Malt House is lovely for British food. If you want Italian, try Tuscan Kitchen."
+def build_system_prompt(
+    chunks: List[Tuple[str, str, float]],
+    conversation_history: List[dict] = None,
+    is_followup: bool = False,
+    use_general_knowledge: bool = False
+) -> str:
+    """
+    Build system prompt for Klyra assistant.
 
-Always use this natural, conversational style."""
+    Three modes:
+    1. General Knowledge - for non-company questions
+    2. No Documents Found - when search returns nothing relevant
+    3. Document-Assisted - main mode with company docs
+    """
 
-    if use_general_knowledge or not chunks:
-        return f"""{identity}
+    base_identity = """You are Klyra, the AI assistant built by Klyra Labs to help users access company knowledge instantly.
+
+IDENTITY:
+- You are Klyra, created by Klyra Labs
+- Charlie Swinhoe is your creator and Klyra Labs' CEO
+- You help users find information from their company documents
+- When asked who made you: "I'm Klyra, built by Klyra Labs"
+- NEVER mention OpenAI, GPT, Anthropic, Ollama, or other AI companies
 
 STYLE:
-- Be helpful and friendly, like chatting with a knowledgeable colleague
-- Match the user's tone (casual if they're casual)
-- Give direct answers without over-explaining
-- Use short paragraphs, not walls of text"""
+- Be direct and useful - users need quick answers
+- Write in plain text, no markdown formatting (no **, ##, bullets, numbered lists)
+- Keep responses concise but complete
+- If you don't know something from the documents, say so clearly
+- Write naturally like a helpful colleague, not like a robot"""
 
-    # Build document context
+    # MODE 1: General Knowledge Query
+    if use_general_knowledge:
+        return f"""{base_identity}
+
+MODE: General Knowledge
+This question isn't about company documents, so answer from your general knowledge.
+Be helpful and direct. No need to cite sources."""
+
+    # MODE 2: No Documents Found
+    if not chunks:
+        return f"""{base_identity}
+
+MODE: No Documents Found
+I couldn't find relevant information in the uploaded documents for this query.
+Either:
+1. The documents haven't been uploaded yet
+2. The question is about something not covered in the documents
+3. Try rephrasing the question
+
+Be honest that you don't have the information. You can offer to help with general knowledge if appropriate."""
+
+    # MODE 3: Document-Assisted (main mode)
+    # Build context from chunks - limit to top 8
     context_parts = []
-    for doc_name, chunk_text, score in chunks:
-        section = extract_section_from_chunk(chunk_text)
-        content_lines = chunk_text.split('\n')
+    for doc_name, content, score in chunks[:8]:
+        # Extract section info if present
+        section = extract_section_from_chunk(content)
+        content_lines = content.split('\n')
         if len(content_lines) > 1 and ' > ' in content_lines[0]:
-            content = '\n'.join(content_lines[1:]).strip()
+            clean_content = '\n'.join(content_lines[1:]).strip()
         else:
-            content = chunk_text.strip()
+            clean_content = content.strip()
 
         if section:
-            context_parts.append(f"[{doc_name}, {section}]\n{content}")
+            context_parts.append(f"[Source: {doc_name}, {section}]\n{clean_content}")
         else:
-            context_parts.append(f"[{doc_name}]\n{content}")
+            context_parts.append(f"[Source: {doc_name}]\n{clean_content}")
 
-    context_str = "\n\n---\n\n".join(context_parts)
+    context = "\n\n---\n\n".join(context_parts)
 
-    return f"""{identity}
+    # Handle follow-up questions
+    followup_instruction = ""
+    if is_followup and conversation_history:
+        last_assistant = None
+        for msg in reversed(conversation_history):
+            if msg.get('role') == 'assistant':
+                last_assistant = msg.get('content', '')[:500]
+                break
 
-STYLE:
-- Use the DOCUMENTS below when they have relevant info
-- For other questions, use general knowledge naturally
-- Be conversational, not robotic or over-structured
-- Never invent company-specific facts not in documents
-- Do NOT write "Sources:" - the system adds citations automatically
+        if last_assistant:
+            followup_instruction = f"""
 
-DOCUMENTS:
-{context_str}"""
+FOLLOW-UP CONTEXT:
+The user is asking about your previous response. Here's what you said:
+"{last_assistant}..."
+
+Now provide a DIFFERENT explanation - simpler, more detailed, or from a new angle.
+DO NOT just repeat the same thing."""
+
+    return f"""{base_identity}
+
+MODE: Document-Assisted
+Use the following company documents to answer. Cite information accurately.
+{followup_instruction}
+
+COMPANY DOCUMENTS:
+{context}
+
+INSTRUCTIONS:
+- Answer based on the documents above
+- If the documents don't cover something, say so
+- Don't make up facts not in the documents
+- The system will add source citations automatically - don't write "Sources:" yourself"""
