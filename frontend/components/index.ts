@@ -12,3 +12,4 @@ export { ChatMessage } from "./ChatMessage";
 export { ChatInput } from "./ChatInput";
 export { ErrorBoundary } from "./ErrorBoundary";
 export { CommandPalette } from "./CommandPalette";
+export { SmartSuggestions } from "./SmartSuggestions";

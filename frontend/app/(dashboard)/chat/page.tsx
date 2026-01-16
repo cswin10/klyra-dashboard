@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState, useRef, useCallback, useMemo } from "react";
 import { Plus, MessageSquare, Trash2, Download, FileText, Mail, HelpCircle, GitCompare, Search, List, X } from "lucide-react";
-import { ChatMessage, ChatInput } from "@/components";
+import { ChatMessage, ChatInput, SmartSuggestions } from "@/components";
 import { api, ChatListItem, Message, PromptTemplate } from "@/lib/api";
 import { cn, formatRelativeTime, truncate } from "@/lib/utils";
 
@@ -430,16 +430,31 @@ export default function ChatPage() {
                   </div>
                 </div>
               ) : (
-                messages.map((message) => (
-                  <ChatMessage
-                    key={message.id}
-                    messageId={message.id.startsWith("temp-") ? undefined : message.id}
-                    role={message.role}
-                    content={message.content}
-                    sources={message.sources}
-                    isStreaming={message.isStreaming}
-                  />
-                ))
+                <>
+                  {messages.map((message) => (
+                    <ChatMessage
+                      key={message.id}
+                      messageId={message.id.startsWith("temp-") ? undefined : message.id}
+                      role={message.role}
+                      content={message.content}
+                      sources={message.sources}
+                      isStreaming={message.isStreaming}
+                    />
+                  ))}
+                  {/* Smart Suggestions after last assistant message */}
+                  {messages.length > 0 &&
+                    messages[messages.length - 1].role === "assistant" &&
+                    !messages[messages.length - 1].isStreaming && (
+                      <SmartSuggestions
+                        lastAssistantMessage={messages[messages.length - 1].content}
+                        sources={messages[messages.length - 1].sources}
+                        onSuggestionClick={(prompt) => {
+                          setDraftMessage(prompt);
+                        }}
+                        disabled={isSending}
+                      />
+                    )}
+                </>
               )}
               <div ref={messagesEndRef} />
             </div>
