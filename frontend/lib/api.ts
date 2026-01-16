@@ -150,6 +150,19 @@ export interface DashboardStats {
   queries_over_time: DailyQueryCount[];
 }
 
+export interface UserAnalytics {
+  total_queries: number;
+  queries_today: number;
+  queries_this_week: number;
+  queries_this_month: number;
+  avg_response_time_ms: number;
+  total_chats: number;
+  total_messages: number;
+  queries_by_day: DailyQueryCount[];
+  top_documents: { name: string; queries: number }[];
+  recent_activity: { query: string; response_time_ms: number; created_at: string }[];
+}
+
 export interface SystemStats {
   current_model: string;
   gpu_name: string | null;
@@ -547,6 +560,10 @@ class ApiClient {
   // Stats
   async getDashboardStats(): Promise<DashboardStats> {
     return this.request("/api/stats");
+  }
+
+  async getUserAnalytics(): Promise<UserAnalytics> {
+    return this.request("/api/stats/me");
   }
 
   // Feedback
