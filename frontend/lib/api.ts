@@ -47,6 +47,15 @@ export interface Message {
   created_at: string;
 }
 
+export interface RagConfidence {
+  confidence_level: "high" | "medium" | "low" | "none";
+  confidence_score?: number;
+  used_general_knowledge?: boolean;
+  is_ambiguous?: boolean;
+  ambiguous_docs?: string[];
+  doc_count?: number;
+}
+
 export type DocumentCategory =
   | "sales"
   | "company"
@@ -331,7 +340,7 @@ class ApiClient {
     chatId: string,
     content: string,
     onToken: (token: string) => void,
-    onComplete: (sources: string[], userMessageId?: string, assistantMessageId?: string) => void,
+    onComplete: (sources: string[], userMessageId?: string, assistantMessageId?: string, confidence?: RagConfidence) => void,
     onError: (error: string) => void
   ): Promise<void> {
     const token = this.getToken();
@@ -372,7 +381,7 @@ class ApiClient {
               onToken(data.token);
             }
             if (data.done) {
-              onComplete(data.sources || [], data.user_message_id, data.assistant_message_id);
+              onComplete(data.sources || [], data.user_message_id, data.assistant_message_id, data.confidence);
             }
             if (data.error) {
               onError(data.error);

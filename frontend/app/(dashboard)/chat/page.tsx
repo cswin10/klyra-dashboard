@@ -3,7 +3,7 @@
 import React, { useEffect, useState, useRef, useCallback, useMemo } from "react";
 import { Plus, MessageSquare, Trash2, Download, FileText, Mail, HelpCircle, GitCompare, Search, List, X, PanelLeftClose, PanelLeft, Sparkles } from "lucide-react";
 import { ChatMessage, ChatInput, SmartSuggestions, SkeletonChatList, SkeletonMessage } from "@/components";
-import { api, ChatListItem, Message, PromptTemplate } from "@/lib/api";
+import { api, ChatListItem, Message, PromptTemplate, RagConfidence } from "@/lib/api";
 import { cn, formatRelativeTime, truncate } from "@/lib/utils";
 
 interface LocalMessage {
@@ -12,6 +12,7 @@ interface LocalMessage {
   content: string;
   sources: string[] | null;
   isStreaming?: boolean;
+  confidence?: RagConfidence;
 }
 
 // Icon map for templates
@@ -250,11 +251,11 @@ export default function ChatPage() {
             )
           );
         },
-        (sources, userMsgId, assistantMsgId) => {
+        (sources, userMsgId, assistantMsgId, confidence) => {
           setMessages((prev) =>
             prev.map((m) => {
               if (m.id === assistantMessageId) {
-                return { ...m, id: assistantMsgId || m.id, sources, isStreaming: false };
+                return { ...m, id: assistantMsgId || m.id, sources, isStreaming: false, confidence };
               }
               if (m.id === userMessageId && userMsgId) {
                 return { ...m, id: userMsgId };
@@ -283,7 +284,7 @@ export default function ChatPage() {
   };
 
   return (
-    <div className="flex h-[calc(100vh-64px)] lg:h-[calc(100vh-64px)] -m-4 sm:-m-6 lg:-m-page-padding relative">
+    <div className="flex h-[calc(100vh-80px)] lg:h-[calc(100vh-32px)] -m-4 sm:-m-6 lg:-m-page-padding relative">
       {/* Mobile overlay when sidebar is open */}
       {isChatSidebarOpen && (
         <div
@@ -482,6 +483,7 @@ export default function ChatPage() {
                       content={message.content}
                       sources={message.sources}
                       isStreaming={message.isStreaming}
+                      confidence={message.confidence}
                     />
                   ))}
                   {/* Smart Suggestions after last assistant message */}

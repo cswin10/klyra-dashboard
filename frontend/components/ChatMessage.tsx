@@ -2,8 +2,8 @@
 
 import React, { useState, useEffect, useMemo } from "react";
 import { cn } from "@/lib/utils";
-import { ThumbsUp, ThumbsDown, FileText } from "lucide-react";
-import { api, FeedbackType } from "@/lib/api";
+import { ThumbsUp, ThumbsDown, FileText, Shield, ShieldCheck, ShieldAlert, ShieldQuestion, Brain } from "lucide-react";
+import { api, FeedbackType, RagConfidence } from "@/lib/api";
 
 // Strip markdown formatting for clean display
 function stripMarkdown(text: string): string {
@@ -33,9 +33,42 @@ interface ChatMessageProps {
   content: string;
   sources?: string[] | null;
   isStreaming?: boolean;
+  confidence?: RagConfidence;
 }
 
-export function ChatMessage({ messageId, role, content, sources, isStreaming }: ChatMessageProps) {
+// Confidence level config
+const CONFIDENCE_CONFIG = {
+  high: {
+    icon: ShieldCheck,
+    label: "High confidence",
+    color: "text-status-green",
+    bgColor: "bg-status-green/10",
+    borderColor: "border-status-green/20",
+  },
+  medium: {
+    icon: Shield,
+    label: "Medium confidence",
+    color: "text-status-yellow",
+    bgColor: "bg-status-yellow/10",
+    borderColor: "border-status-yellow/20",
+  },
+  low: {
+    icon: ShieldAlert,
+    label: "Low confidence",
+    color: "text-status-red",
+    bgColor: "bg-status-red/10",
+    borderColor: "border-status-red/20",
+  },
+  none: {
+    icon: Brain,
+    label: "General knowledge",
+    color: "text-accent",
+    bgColor: "bg-accent/10",
+    borderColor: "border-accent/20",
+  },
+};
+
+export function ChatMessage({ messageId, role, content, sources, isStreaming, confidence }: ChatMessageProps) {
   const isUser = role === "user";
   const isThinking = isStreaming && !content;
   const [feedback, setFeedback] = useState<FeedbackType | null>(null);
@@ -124,19 +157,51 @@ export function ChatMessage({ messageId, role, content, sources, isStreaming }: 
           )}
         </div>
 
-        {cleanSources.length > 0 && (
-          <div className="mt-2 pt-2 border-t border-card-border/50">
-            <div className="flex flex-wrap gap-1.5 items-center">
-              <FileText className="h-3 w-3 text-text-muted flex-shrink-0" />
-              {cleanSources.map((source, idx) => (
-                <span
-                  key={idx}
-                  className="inline-flex items-center px-2 py-0.5 rounded-full text-xs bg-accent/10 text-accent border border-accent/20"
-                >
-                  {source}
-                </span>
-              ))}
-            </div>
+        {/* Sources and Confidence */}
+        {!isUser && !isStreaming && content && (cleanSources.length > 0 || confidence) && (
+          <div className="mt-3 pt-3 border-t border-card-border/30 space-y-2">
+            {/* Confidence Indicator */}
+            {confidence && (
+              <div className="flex items-center gap-2">
+                {(() => {
+                  const level = confidence.used_general_knowledge ? "none" : (confidence.confidence_level || "none");
+                  const config = CONFIDENCE_CONFIG[level as keyof typeof CONFIDENCE_CONFIG] || CONFIDENCE_CONFIG.none;
+                  const Icon = config.icon;
+                  return (
+                    <div className={cn(
+                      "inline-flex items-center gap-1.5 px-2 py-1 rounded-md text-xs font-medium",
+                      config.bgColor,
+                      config.borderColor,
+                      "border"
+                    )}>
+                      <Icon className={cn("h-3.5 w-3.5", config.color)} />
+                      <span className={config.color}>{config.label}</span>
+                    </div>
+                  );
+                })()}
+              </div>
+            )}
+
+            {/* Document Sources */}
+            {cleanSources.length > 0 && (
+              <div className="space-y-1.5">
+                <div className="flex items-center gap-1.5 text-xs text-text-muted">
+                  <FileText className="h-3 w-3" />
+                  <span className="font-medium">Sources ({cleanSources.length})</span>
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {cleanSources.map((source, idx) => (
+                    <span
+                      key={idx}
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs bg-card-bg border border-card-border/50 text-text-secondary hover:border-accent/30 hover:text-text-primary transition-colors cursor-default"
+                    >
+                      <FileText className="h-3 w-3 text-accent/70" />
+                      {source}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         )}
 
