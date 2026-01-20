@@ -90,10 +90,13 @@ export default function DashboardLayout({
     return null;
   }
 
+  // Check if we're on a full-height page (like chat) that needs special layout
+  const isFullHeightPage = pathname === "/chat";
+
   return (
-    <div className="min-h-screen bg-page-bg">
+    <div className="h-screen overflow-hidden bg-page-bg flex flex-col">
       {/* Mobile Header */}
-      <header className="lg:hidden fixed top-0 left-0 right-0 z-40 bg-sidebar-bg/95 backdrop-blur-lg border-b border-card-border px-4 py-3">
+      <header className="lg:hidden flex-shrink-0 bg-sidebar-bg/95 backdrop-blur-lg border-b border-card-border px-4 py-3 z-40">
         <div className="flex items-center justify-between">
           <button
             onClick={() => setIsMobileMenuOpen(true)}
@@ -127,10 +130,10 @@ export default function DashboardLayout({
 
       {/* Main Content */}
       <main className={cn(
-        "min-h-screen transition-all duration-300",
-        "pt-16 lg:pt-0", // Account for mobile header
-        "lg:ml-sidebar",
-        "p-4 sm:p-6 lg:p-page-padding"
+        "flex-1 transition-all duration-300 lg:ml-sidebar",
+        isFullHeightPage
+          ? "overflow-hidden"
+          : "overflow-y-auto p-4 sm:p-6 lg:p-page-padding"
       )}>
         <ErrorBoundary>{children}</ErrorBoundary>
       </main>

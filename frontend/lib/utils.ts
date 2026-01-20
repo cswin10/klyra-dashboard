@@ -81,3 +81,27 @@ export function getInitials(name: string): string {
     .toUpperCase()
     .slice(0, 2);
 }
+
+export interface DocumentFreshness {
+  level: "fresh" | "recent" | "aging" | "stale";
+  daysOld: number;
+  label: string;
+  color: string;
+  bgColor: string;
+}
+
+export function getDocumentFreshness(uploadedAt: string): DocumentFreshness {
+  const now = new Date();
+  const uploaded = new Date(uploadedAt);
+  const daysOld = Math.floor((now.getTime() - uploaded.getTime()) / (1000 * 60 * 60 * 24));
+
+  if (daysOld <= 7) {
+    return { level: "fresh", daysOld, label: "Fresh", color: "text-status-green", bgColor: "bg-status-green" };
+  } else if (daysOld <= 30) {
+    return { level: "recent", daysOld, label: "Recent", color: "text-accent", bgColor: "bg-accent" };
+  } else if (daysOld <= 90) {
+    return { level: "aging", daysOld, label: "Aging", color: "text-status-yellow", bgColor: "bg-status-yellow" };
+  } else {
+    return { level: "stale", daysOld, label: "Needs Review", color: "text-status-red", bgColor: "bg-status-red" };
+  }
+}

@@ -243,6 +243,9 @@ export interface PromptTemplate {
 
 // API Client
 class ApiClient {
+  private isRefreshing = false;
+  private refreshPromise: Promise<boolean> | null = null;
+
   private getToken(): string | null {
     if (typeof window !== "undefined") {
       return localStorage.getItem("token");
@@ -250,9 +253,39 @@ class ApiClient {
     return null;
   }
 
+  private async refreshToken(): Promise<boolean> {
+    const token = this.getToken();
+    if (!token) return false;
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/auth/refresh`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`,
+        },
+      });
+
+      if (!response.ok) return false;
+
+      const data = await response.json();
+      if (data.token) {
+        localStorage.setItem("token", data.token);
+        if (data.user) {
+          localStorage.setItem("user", JSON.stringify(data.user));
+        }
+        return true;
+      }
+      return false;
+    } catch {
+      return false;
+    }
+  }
+
   private async request<T>(
     endpoint: string,
-    options: RequestInit = {}
+    options: RequestInit = {},
+    isRetry = false
   ): Promise<T> {
     const token = this.getToken();
     const headers: HeadersInit = {
@@ -268,6 +301,31 @@ class ApiClient {
       ...options,
       headers,
     });
+
+    // Handle 401 - try to refresh token once
+    if (response.status === 401 && !isRetry && token) {
+      // Deduplicate refresh requests
+      if (!this.isRefreshing) {
+        this.isRefreshing = true;
+        this.refreshPromise = this.refreshToken();
+      }
+
+      const refreshed = await this.refreshPromise;
+      this.isRefreshing = false;
+      this.refreshPromise = null;
+
+      if (refreshed) {
+        // Retry the original request with new token
+        return this.request(endpoint, options, true);
+      } else {
+        // Refresh failed - redirect to login
+        if (typeof window !== "undefined") {
+          localStorage.removeItem("token");
+          localStorage.removeItem("user");
+          window.location.href = "/login";
+        }
+      }
+    }
 
     if (!response.ok) {
       const error = await response.json().catch(() => ({ detail: "An error occurred" }));
