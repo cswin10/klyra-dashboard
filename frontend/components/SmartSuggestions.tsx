@@ -113,27 +113,29 @@ export function SmartSuggestions({
   }
 
   return (
-    <div className="flex flex-wrap gap-2 mt-3 pt-3 border-t border-card-border/50">
-      <span className="text-xs text-text-muted flex items-center gap-1 mr-1">
-        <Lightbulb className="h-3 w-3" />
-        Follow up:
+    <div className="flex flex-wrap gap-2 mt-4 pt-4 border-t border-card-border/30 animate-fade-in-up">
+      <span className="text-xs text-text-muted flex items-center gap-1.5 mr-2">
+        <Lightbulb className="h-3.5 w-3.5 text-accent/70" />
+        <span className="font-medium">Continue with:</span>
       </span>
-      {suggestions.map((suggestion) => (
+      {suggestions.map((suggestion, index) => (
         <button
           key={suggestion.id}
           onClick={() => onSuggestionClick(suggestion.prompt)}
           disabled={disabled}
+          style={{ animationDelay: `${index * 0.1}s` }}
           className={cn(
-            "inline-flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-full",
-            "bg-card-bg border border-card-border",
+            "inline-flex items-center gap-2 px-3.5 py-2 text-xs rounded-full animate-fade-in",
+            "bg-card-bg/80 border border-card-border/50 backdrop-blur-sm",
             "text-text-secondary hover:text-text-primary",
-            "hover:border-accent/50 hover:bg-card-bg/80",
+            "hover:border-accent/40 hover:bg-accent/5 hover:shadow-lg hover:shadow-accent/5",
+            "transform hover:scale-[1.02] active:scale-[0.98]",
             "transition-all duration-200",
             disabled && "opacity-50 cursor-not-allowed"
           )}
         >
-          <span className="text-accent">{suggestion.icon}</span>
-          {suggestion.label}
+          <span className="text-accent transition-transform group-hover:scale-110">{suggestion.icon}</span>
+          <span className="font-medium">{suggestion.label}</span>
         </button>
       ))}
     </div>

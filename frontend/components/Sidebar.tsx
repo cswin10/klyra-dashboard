@@ -95,8 +95,8 @@ export function Sidebar({ onClose }: SidebarProps) {
       </div>
 
       {/* Navigation */}
-      <nav className="flex-1 p-4 space-y-1">
-        {filteredNavigation.map((item) => {
+      <nav className="flex-1 p-4 space-y-1 stagger-children">
+        {filteredNavigation.map((item, index) => {
           const isActive = pathname === item.href;
           const Icon = item.icon;
 
@@ -105,20 +105,30 @@ export function Sidebar({ onClose }: SidebarProps) {
               key={item.name}
               href={item.href}
               onClick={onClose}
+              style={{ animationDelay: `${index * 0.05}s` }}
               className={cn(
-                "nav-item flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-300",
+                "nav-item sidebar-item-glow flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-300 animate-fade-in-up",
                 isActive
-                  ? "bg-white/5 text-white backdrop-blur-sm"
-                  : "text-text-secondary hover:text-white"
+                  ? "bg-white/8 text-white backdrop-blur-sm border border-white/5"
+                  : "text-text-secondary hover:text-white hover:bg-white/3"
               )}
             >
-              <Icon className={cn(
-                "h-5 w-5 transition-all duration-300",
-                isActive && "text-silver drop-shadow-[0_0_8px_rgba(192,192,192,0.5)]"
-              )} />
-              <span className="text-nav-item">{item.name}</span>
+              <div className={cn(
+                "p-1.5 rounded-lg transition-all duration-300",
+                isActive ? "bg-accent/10" : "bg-transparent group-hover:bg-white/5"
+              )}>
+                <Icon className={cn(
+                  "h-4 w-4 transition-all duration-300",
+                  isActive
+                    ? "text-accent drop-shadow-[0_0_8px_rgba(192,192,192,0.5)]"
+                    : "group-hover:text-accent"
+                )} />
+              </div>
+              <span className="text-nav-item font-medium">{item.name}</span>
               {isActive && (
-                <div className="ml-auto w-1.5 h-1.5 rounded-full bg-silver shadow-[0_0_8px_rgba(192,192,192,0.8)]" />
+                <div className="ml-auto flex items-center gap-1.5">
+                  <div className="w-1.5 h-1.5 rounded-full bg-accent shadow-[0_0_8px_rgba(192,192,192,0.8)] animate-pulse" />
+                </div>
               )}
             </Link>
           );
