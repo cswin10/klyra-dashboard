@@ -91,24 +91,28 @@ export function ChatMessage({ messageId, role, content, sources, isStreaming }: 
   };
 
   return (
-    <div className={cn("flex", isUser ? "justify-end" : "justify-start")}>
+    <div className={cn(
+      "flex",
+      isUser ? "justify-end" : "justify-start",
+      isUser ? "message-user" : "message-assistant"
+    )}>
       <div
         className={cn(
-          "max-w-[80%] rounded-2xl px-4 py-3",
+          "max-w-[80%] rounded-2xl px-4 py-3 transition-all duration-200",
           isUser
-            ? "bg-accent text-page-bg rounded-br-md"
-            : "bg-card-bg border border-card-border text-text-primary rounded-bl-md"
+            ? "bg-accent text-page-bg rounded-br-md hover:shadow-lg hover:shadow-accent/20"
+            : "bg-card-bg border border-card-border text-text-primary rounded-bl-md hover:border-card-border/80"
         )}
       >
         <div className="text-sm whitespace-pre-wrap break-words">
           {isThinking ? (
-            <span className="flex items-center gap-2 text-text-secondary italic">
-              <span className="flex gap-1">
-                <span className="w-1.5 h-1.5 bg-accent rounded-full animate-bounce" style={{ animationDelay: "0ms" }} />
-                <span className="w-1.5 h-1.5 bg-accent rounded-full animate-bounce" style={{ animationDelay: "150ms" }} />
-                <span className="w-1.5 h-1.5 bg-accent rounded-full animate-bounce" style={{ animationDelay: "300ms" }} />
+            <span className="flex items-center gap-3 text-text-secondary">
+              <span className="flex gap-1.5">
+                <span className="typing-dot w-2 h-2 bg-accent rounded-full" />
+                <span className="typing-dot w-2 h-2 bg-accent rounded-full" />
+                <span className="typing-dot w-2 h-2 bg-accent rounded-full" />
               </span>
-              Klyra is thinking...
+              <span className="text-sm">Klyra is thinking...</span>
             </span>
           ) : (
             <>

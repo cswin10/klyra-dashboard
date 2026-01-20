@@ -1,8 +1,8 @@
 "use client";
 
 import React, { useEffect, useState, useRef, useCallback, useMemo } from "react";
-import { Plus, MessageSquare, Trash2, Download, FileText, Mail, HelpCircle, GitCompare, Search, List, X, PanelLeftClose, PanelLeft } from "lucide-react";
-import { ChatMessage, ChatInput, SmartSuggestions } from "@/components";
+import { Plus, MessageSquare, Trash2, Download, FileText, Mail, HelpCircle, GitCompare, Search, List, X, PanelLeftClose, PanelLeft, Sparkles } from "lucide-react";
+import { ChatMessage, ChatInput, SmartSuggestions, SkeletonChatList, SkeletonMessage } from "@/components";
 import { api, ChatListItem, Message, PromptTemplate } from "@/lib/api";
 import { cn, formatRelativeTime, truncate } from "@/lib/utils";
 
@@ -340,9 +340,7 @@ export default function ChatPage() {
 
         <div className="flex-1 overflow-y-auto p-2 space-y-1">
           {isLoadingChats ? (
-            <div className="flex items-center justify-center py-8">
-              <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-accent"></div>
-            </div>
+            <SkeletonChatList count={6} />
           ) : displayedChats.length === 0 ? (
             <div className="text-center py-8 text-text-secondary text-sm">
               {searchQuery ? "No matching chats found" : "No chats yet. Start a new conversation!"}
@@ -433,24 +431,33 @@ export default function ChatPage() {
             {/* Messages Area */}
             <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-4">
               {isLoadingMessages ? (
-                <div className="flex items-center justify-center h-full">
-                  <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-accent"></div>
+                <div className="space-y-4 animate-fade-in">
+                  <SkeletonMessage isUser={false} />
+                  <SkeletonMessage isUser={true} />
+                  <SkeletonMessage isUser={false} />
                 </div>
               ) : messages.length === 0 ? (
-                <div className="flex flex-col items-center justify-center h-full">
-                  <MessageSquare className="h-10 w-10 text-text-muted mb-4" />
-                  <p className="text-text-secondary text-sm mb-6">
-                    Start a conversation or try a quick prompt:
+                <div className="flex flex-col items-center justify-center h-full animate-fade-in-up">
+                  <div className="relative mb-6">
+                    <div className="absolute inset-0 bg-accent/20 blur-2xl rounded-full" />
+                    <div className="relative p-4 bg-card-bg/50 backdrop-blur-sm border border-card-border rounded-2xl">
+                      <Sparkles className="h-8 w-8 text-accent" />
+                    </div>
+                  </div>
+                  <h3 className="text-lg font-medium text-text-primary mb-2">Start a conversation</h3>
+                  <p className="text-text-secondary text-sm mb-8 text-center max-w-md">
+                    Ask Klyra anything or try a quick prompt below
                   </p>
-                  <div className="grid grid-cols-2 md:grid-cols-3 gap-3 max-w-2xl">
-                    {templates.slice(0, 6).map((template) => (
+                  <div className="grid grid-cols-2 md:grid-cols-3 gap-3 max-w-2xl stagger-children">
+                    {templates.slice(0, 6).map((template, index) => (
                       <button
                         key={template.id}
                         onClick={() => setDraftMessage(template.prompt)}
                         disabled={isSending}
-                        className="flex items-start gap-3 p-4 bg-card-bg border border-card-border rounded-lg text-left hover:border-accent/50 hover:bg-card-bg/80 transition-all group"
+                        style={{ animationDelay: `${index * 0.05}s` }}
+                        className="flex items-start gap-3 p-4 bg-card-bg/80 backdrop-blur-sm border border-card-border rounded-xl text-left hover:border-accent/50 hover:bg-card-bg hover:shadow-lg hover:shadow-accent/5 transition-all duration-200 group card-lift animate-fade-in-up"
                       >
-                        <span className="text-accent group-hover:text-accent-hover transition-colors">
+                        <span className="text-accent group-hover:text-accent-hover group-hover:scale-110 transition-all duration-200">
                           {TEMPLATE_ICONS[template.icon || "file-text"] || <FileText className="h-5 w-5" />}
                         </span>
                         <div className="flex-1 min-w-0">

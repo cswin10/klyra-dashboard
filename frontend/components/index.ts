@@ -13,3 +13,4 @@ export { ChatInput } from "./ChatInput";
 export { ErrorBoundary } from "./ErrorBoundary";
 export { CommandPalette } from "./CommandPalette";
 export { SmartSuggestions } from "./SmartSuggestions";
+export { Skeleton, SkeletonText, SkeletonCard, SkeletonMessage, SkeletonChatList, SkeletonStatCard } from "./Skeleton";
