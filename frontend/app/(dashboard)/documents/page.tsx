@@ -1,10 +1,10 @@
 "use client";
 
-import React, { useEffect, useState, useCallback } from "react";
-import { Trash2, Upload, FileText, Building2, User, Search, X, History, RefreshCw, Download, ExternalLink } from "lucide-react";
+import React, { useEffect, useState, useCallback, useMemo } from "react";
+import { Trash2, Upload, FileText, Building2, User, Search, X, History, RefreshCw, Download, AlertTriangle, CheckCircle, Clock, AlertCircle, Layers } from "lucide-react";
 import { StatusBadge, Popup, UploadModal } from "@/components";
 import { api, Document, DocumentCategory, DOCUMENT_CATEGORIES, DocumentSearchResult, DocumentVersion, MyDocumentCount } from "@/lib/api";
-import { formatBytes, formatDate, cn } from "@/lib/utils";
+import { formatBytes, formatDate, cn, getDocumentFreshness } from "@/lib/utils";
 import { useAuth } from "@/lib/auth";
 
 type TabType = "company" | "personal";
@@ -263,6 +263,32 @@ export default function DocumentsPage() {
     documents: displayDocs.filter((d) => d.category === cat.value),
   })).filter((cat) => cat.documents.length > 0);
 
+  // Calculate document health stats
+  const documentHealthStats = useMemo(() => {
+    const stats = {
+      total: documents.length,
+      totalChunks: documents.reduce((sum, d) => sum + (d.chunk_count || 0), 0),
+      ready: documents.filter(d => d.status === "ready").length,
+      processing: documents.filter(d => d.status === "processing").length,
+      error: documents.filter(d => d.status === "error").length,
+      fresh: 0,
+      recent: 0,
+      aging: 0,
+      stale: 0,
+      staleDocs: [] as Document[],
+    };
+
+    documents.forEach(doc => {
+      const freshness = getDocumentFreshness(doc.uploaded_at);
+      stats[freshness.level]++;
+      if (freshness.level === "stale") {
+        stats.staleDocs.push(doc);
+      }
+    });
+
+    return stats;
+  }, [documents]);
+
   const clearSearch = () => {
     setSearchQuery("");
     setSearchResults([]);
@@ -356,6 +382,95 @@ export default function DocumentsPage() {
           )}
         </div>
       </div>
+
+      {/* Document Health Stats */}
+      {documents.length > 0 && (
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div className="glass-card p-4">
+            <div className="flex items-center gap-3">
+              <div className="p-2 rounded-lg bg-accent/10">
+                <FileText className="h-5 w-5 text-accent" />
+              </div>
+              <div>
+                <p className="text-2xl font-semibold text-text-primary">{documentHealthStats.total}</p>
+                <p className="text-xs text-text-muted">Documents</p>
+              </div>
+            </div>
+          </div>
+          <div className="glass-card p-4">
+            <div className="flex items-center gap-3">
+              <div className="p-2 rounded-lg bg-status-green/10">
+                <Layers className="h-5 w-5 text-status-green" />
+              </div>
+              <div>
+                <p className="text-2xl font-semibold text-text-primary">{documentHealthStats.totalChunks}</p>
+                <p className="text-xs text-text-muted">Indexed Chunks</p>
+              </div>
+            </div>
+          </div>
+          <div className="glass-card p-4">
+            <div className="flex items-center gap-3">
+              <div className="p-2 rounded-lg bg-status-green/10">
+                <CheckCircle className="h-5 w-5 text-status-green" />
+              </div>
+              <div>
+                <p className="text-2xl font-semibold text-text-primary">{documentHealthStats.fresh + documentHealthStats.recent}</p>
+                <p className="text-xs text-text-muted">Fresh ({"<"}30 days)</p>
+              </div>
+            </div>
+          </div>
+          <div className="glass-card p-4">
+            <div className="flex items-center gap-3">
+              <div className={cn(
+                "p-2 rounded-lg",
+                documentHealthStats.stale > 0 ? "bg-status-red/10" : "bg-status-yellow/10"
+              )}>
+                {documentHealthStats.stale > 0 ? (
+                  <AlertTriangle className="h-5 w-5 text-status-red" />
+                ) : (
+                  <Clock className="h-5 w-5 text-status-yellow" />
+                )}
+              </div>
+              <div>
+                <p className={cn(
+                  "text-2xl font-semibold",
+                  documentHealthStats.stale > 0 ? "text-status-red" : "text-text-primary"
+                )}>
+                  {documentHealthStats.stale}
+                </p>
+                <p className="text-xs text-text-muted">Need Review ({">"}90 days)</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Stale Documents Alert */}
+      {documentHealthStats.stale > 0 && (
+        <div className="flex items-start gap-3 p-4 bg-status-red/10 border border-status-red/20 rounded-card">
+          <AlertTriangle className="h-5 w-5 text-status-red flex-shrink-0 mt-0.5" />
+          <div className="flex-1">
+            <p className="text-status-red font-medium">
+              {documentHealthStats.stale} document{documentHealthStats.stale > 1 ? "s" : ""} need{documentHealthStats.stale === 1 ? "s" : ""} review
+            </p>
+            <p className="text-sm text-status-red/80">
+              The following documents haven&apos;t been updated in over 90 days and may contain outdated information:
+            </p>
+            <div className="flex flex-wrap gap-2 mt-2">
+              {documentHealthStats.staleDocs.slice(0, 5).map((doc) => (
+                <span key={doc.id} className="px-2 py-1 text-xs bg-status-red/20 text-status-red rounded">
+                  {doc.name}
+                </span>
+              ))}
+              {documentHealthStats.staleDocs.length > 5 && (
+                <span className="px-2 py-1 text-xs bg-status-red/20 text-status-red rounded">
+                  +{documentHealthStats.staleDocs.length - 5} more
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Search Results */}
       {showSearch && searchQuery && (
@@ -542,20 +657,32 @@ export default function DocumentsPage() {
 
               {/* Documents List */}
               <div className="divide-y divide-card-border">
-                {cat.documents.map((doc) => (
+                {cat.documents.map((doc) => {
+                  const freshness = getDocumentFreshness(doc.uploaded_at);
+                  return (
                   <div
                     key={doc.id}
                     className="flex items-center gap-4 p-4 hover:bg-card-bg/30 transition-colors"
                   >
                     <FileText className="h-5 w-5 text-text-muted flex-shrink-0" />
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
                         <p className="font-medium text-text-primary truncate">{doc.name}</p>
                         {doc.version > 1 && (
                           <span className="px-1.5 py-0.5 rounded bg-accent/10 text-accent text-xs font-medium">
                             v{doc.version}
                           </span>
                         )}
+                        {/* Freshness Indicator */}
+                        <span className={cn(
+                          "px-1.5 py-0.5 rounded text-xs font-medium",
+                          freshness.level === "fresh" && "bg-status-green/10 text-status-green",
+                          freshness.level === "recent" && "bg-accent/10 text-accent",
+                          freshness.level === "aging" && "bg-status-yellow/10 text-status-yellow",
+                          freshness.level === "stale" && "bg-status-red/10 text-status-red"
+                        )} title={`${freshness.daysOld} days old`}>
+                          {freshness.label}
+                        </span>
                       </div>
                       <p className="text-xs text-text-muted">
                         {doc.file_type.toUpperCase()} • {formatBytes(doc.file_size)} • {formatDate(doc.uploaded_at)}
@@ -600,7 +727,8 @@ export default function DocumentsPage() {
                       </>
                     )}
                   </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           ))}

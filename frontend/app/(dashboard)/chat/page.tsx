@@ -284,7 +284,7 @@ export default function ChatPage() {
   };
 
   return (
-    <div className="flex h-[calc(100vh-80px)] lg:h-[calc(100vh-32px)] -m-4 sm:-m-6 lg:-m-page-padding relative">
+    <div className="flex h-full relative">
       {/* Mobile overlay when sidebar is open */}
       {isChatSidebarOpen && (
         <div

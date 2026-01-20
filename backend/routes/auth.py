@@ -102,3 +102,31 @@ async def change_password(
     user.password_hash = get_password_hash(request.new_password)
     db.commit()
     return {"message": "Password changed successfully"}
+
+
+@router.post("/refresh", response_model=TokenResponse)
+async def refresh_token(
+    current_user: CurrentUser = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Refresh access token. Uses the current valid token to issue a new one.
+    Call this before the token expires to maintain the session.
+    """
+    user = db.query(User).filter(User.id == current_user.id).first()
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User not found"
+        )
+
+    # Create new access token
+    access_token = create_access_token(
+        data={"sub": user.id},
+        expires_delta=timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+    )
+
+    return TokenResponse(
+        token=access_token,
+        user=UserResponse.model_validate(user)
+    )
