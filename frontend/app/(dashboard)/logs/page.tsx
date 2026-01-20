@@ -89,11 +89,15 @@ export default function LogsPage() {
     );
   }
 
-  const columns = [
+  const columns: Array<{
+    key: string;
+    header: string;
+    render: (row: Log) => React.ReactNode;
+  }> = [
     {
       key: "created_at",
       header: "Timestamp",
-      render: (log: Log) => (
+      render: (log) => (
         <span className="text-text-secondary text-sm">
           {formatDateTime(log.created_at)}
         </span>
@@ -102,7 +106,7 @@ export default function LogsPage() {
     {
       key: "user",
       header: "User",
-      render: (log: Log) => (
+      render: (log) => (
         <div>
           <p className="font-medium text-text-primary">{log.user_name || "Unknown"}</p>
           <p className="text-xs text-text-muted">{log.user_email}</p>
@@ -112,14 +116,14 @@ export default function LogsPage() {
     {
       key: "query",
       header: "Query",
-      render: (log: Log) => (
+      render: (log) => (
         <span className="text-text-secondary">{truncate(log.query, 60)}</span>
       ),
     },
     {
       key: "response_time_ms",
       header: "Response Time",
-      render: (log: Log) => (
+      render: (log) => (
         <span className="text-text-secondary">{log.response_time_ms}ms</span>
       ),
     },
@@ -150,12 +154,12 @@ export default function LogsPage() {
       </div>
 
       {/* Logs Table */}
-      <DataTable
+      <DataTable<Log>
         columns={columns}
         data={logs}
         isLoading={isLoading}
         emptyMessage="No logs found"
-        onRowClick={(log) => setSelectedLog(log as Log)}
+        onRowClick={(log) => setSelectedLog(log)}
       />
 
       {/* Pagination */}

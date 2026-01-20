@@ -18,7 +18,7 @@ interface DataTableProps<T> {
   isLoading?: boolean;
 }
 
-export function DataTable<T extends Record<string, unknown>>({
+export function DataTable<T extends object>({
   columns,
   data,
   onRowClick,
@@ -84,7 +84,7 @@ export function DataTable<T extends Record<string, unknown>>({
                     >
                       {column.render
                         ? column.render(row)
-                        : (row[column.key] as React.ReactNode)}
+                        : ((row as Record<string, unknown>)[column.key] as React.ReactNode)}
                     </td>
                   ))}
                 </tr>
