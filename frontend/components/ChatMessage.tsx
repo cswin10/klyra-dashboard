@@ -157,30 +157,35 @@ export function ChatMessage({ messageId, role, content, sources, isStreaming, co
           )}
         </div>
 
-        {/* Sources and Confidence */}
-        {!isUser && !isStreaming && content && (cleanSources.length > 0 || confidence) && (
+        {/* Sources and Confidence - always show for assistant messages */}
+        {!isUser && !isStreaming && content && (
           <div className="mt-3 pt-3 border-t border-card-border/30 space-y-2">
             {/* Confidence Indicator */}
-            {confidence && (
-              <div className="flex items-center gap-2">
-                {(() => {
-                  const level = confidence.used_general_knowledge ? "none" : (confidence.confidence_level || "none");
-                  const config = CONFIDENCE_CONFIG[level as keyof typeof CONFIDENCE_CONFIG] || CONFIDENCE_CONFIG.none;
-                  const Icon = config.icon;
-                  return (
-                    <div className={cn(
-                      "inline-flex items-center gap-1.5 px-2 py-1 rounded-md text-xs font-medium",
-                      config.bgColor,
-                      config.borderColor,
-                      "border"
-                    )}>
-                      <Icon className={cn("h-3.5 w-3.5", config.color)} />
-                      <span className={config.color}>{config.label}</span>
-                    </div>
-                  );
-                })()}
-              </div>
-            )}
+            <div className="flex items-center gap-2">
+              {(() => {
+                // Check for general knowledge usage - either explicit flag, no sources, or no confidence data
+                const isGeneralKnowledge =
+                  !confidence ||
+                  confidence.used_general_knowledge === true ||
+                  confidence.confidence_level === "none" ||
+                  (cleanSources.length === 0 && (!confidence.doc_count || confidence.doc_count === 0));
+
+                const level = isGeneralKnowledge ? "none" : (confidence?.confidence_level || "none");
+                const config = CONFIDENCE_CONFIG[level as keyof typeof CONFIDENCE_CONFIG] || CONFIDENCE_CONFIG.none;
+                const Icon = config.icon;
+                return (
+                  <div className={cn(
+                    "inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium",
+                    config.bgColor,
+                    config.borderColor,
+                    "border"
+                  )}>
+                    <Icon className={cn("h-4 w-4", config.color)} />
+                    <span className={config.color}>{config.label}</span>
+                  </div>
+                );
+              })()}
+            </div>
 
             {/* Document Sources */}
             {cleanSources.length > 0 && (
