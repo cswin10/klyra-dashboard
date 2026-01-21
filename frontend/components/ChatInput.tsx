@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useImperativeHandle, forwardRef } from "react";
 import { Send, CornerDownLeft } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -12,13 +12,17 @@ interface ChatInputProps {
   onChange?: (value: string) => void;
 }
 
-export function ChatInput({
+export interface ChatInputRef {
+  focus: () => void;
+}
+
+export const ChatInput = forwardRef<ChatInputRef, ChatInputProps>(function ChatInput({
   onSend,
   disabled = false,
   placeholder = "Ask Klyra anything...",
   value,
   onChange,
-}: ChatInputProps) {
+}, ref) {
   const [internalMessage, setInternalMessage] = useState("");
   const [isFocused, setIsFocused] = useState(false);
 
@@ -26,6 +30,13 @@ export function ChatInput({
   const message = value !== undefined ? value : internalMessage;
   const setMessage = onChange || setInternalMessage;
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // Expose focus method to parent
+  useImperativeHandle(ref, () => ({
+    focus: () => {
+      textareaRef.current?.focus();
+    }
+  }));
 
   useEffect(() => {
     if (textareaRef.current) {
@@ -41,6 +52,10 @@ export function ChatInput({
       // Clear both internal and external state
       setInternalMessage("");
       if (onChange) onChange("");
+      // Re-focus after a short delay to ensure the message is sent
+      setTimeout(() => {
+        textareaRef.current?.focus();
+      }, 10);
     }
   };
 
@@ -52,6 +67,18 @@ export function ChatInput({
       textareaRef.current.selectionStart = textareaRef.current.value.length;
     }
   }, [value]);
+
+  // Re-focus when disabled changes from true to false (after response completes)
+  const prevDisabledRef = useRef(disabled);
+  useEffect(() => {
+    if (prevDisabledRef.current && !disabled) {
+      // Was disabled, now enabled - refocus
+      setTimeout(() => {
+        textareaRef.current?.focus();
+      }, 50);
+    }
+    prevDisabledRef.current = disabled;
+  }, [disabled]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -115,4 +142,4 @@ export function ChatInput({
       </div>
     </form>
   );
-}
+});

@@ -38,26 +38,34 @@ export default function ChatPage() {
   const [searchResults, setSearchResults] = useState<{ chatId: string; matchType: "title" | "content" }[]>([]);
   const [isChatSidebarOpen, setIsChatSidebarOpen] = useState(false);
 
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const lastMessageRef = useRef<HTMLDivElement>(null);
   const prevMessageCountRef = useRef(0);
+  const hasScrolledToAssistantRef = useRef(false);
 
-  // Scroll to the start of the last message when a new message is added
+  // Scroll to show the top of the last assistant message
   const scrollToLastMessage = useCallback(() => {
-    if (lastMessageRef.current) {
-      lastMessageRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
+    const container = messagesContainerRef.current;
+    const lastMessage = lastMessageRef.current;
+    if (container && lastMessage) {
+      // Calculate where to scroll so the assistant message header is visible at top with padding
+      const containerRect = container.getBoundingClientRect();
+      const messageRect = lastMessage.getBoundingClientRect();
+      const scrollOffset = messageRect.top - containerRect.top + container.scrollTop - 16; // 16px padding
+      container.scrollTo({ top: scrollOffset, behavior: "smooth" });
     }
   }, []);
 
-  // Scroll to bottom (for user messages)
+  // Scroll to bottom (for user messages - show latest)
   const scrollToBottom = useCallback(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    const container = messagesContainerRef.current;
+    if (container) {
+      container.scrollTo({ top: container.scrollHeight, behavior: "smooth" });
+    }
   }, []);
 
-  // Track if we've scrolled to the current assistant message
-  const hasScrolledToAssistantRef = useRef(false);
-
-  // Smart scroll - scroll to start of last assistant message when it STARTS streaming
+  // Smart scroll - scroll to top of assistant response when streaming starts
   useEffect(() => {
     const currentCount = messages.length;
     const prevCount = prevMessageCountRef.current;
@@ -65,19 +73,22 @@ export default function ChatPage() {
     if (currentCount > 0) {
       const lastMessage = messages[currentCount - 1];
 
-      // For new user messages, scroll to bottom
+      // For new user messages, scroll to bottom first
       if (currentCount > prevCount && lastMessage.role === "user") {
         scrollToBottom();
         hasScrolledToAssistantRef.current = false; // Reset for next assistant message
       }
-      // For new assistant messages, scroll to start IMMEDIATELY when streaming begins
+      // For new assistant messages, scroll to show the response when streaming starts
       else if (
         lastMessage.role === "assistant" &&
         lastMessage.isStreaming &&
         !hasScrolledToAssistantRef.current
       ) {
-        scrollToLastMessage();
-        hasScrolledToAssistantRef.current = true; // Only scroll once at the start
+        // Small delay to ensure the DOM has rendered the assistant message
+        setTimeout(() => {
+          scrollToLastMessage();
+        }, 50);
+        hasScrolledToAssistantRef.current = true;
       }
     }
 
@@ -466,7 +477,7 @@ export default function ChatPage() {
             </div>
 
             {/* Messages Area */}
-            <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-4">
+            <div ref={messagesContainerRef} className="flex-1 overflow-y-auto p-4 md:p-6 space-y-4">
               {isLoadingMessages ? (
                 <div className="space-y-4 animate-fade-in">
                   <SkeletonMessage isUser={false} />
