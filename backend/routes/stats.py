@@ -93,10 +93,10 @@ async def get_user_analytics(
         # Top documents queried (simplified - based on logs)
         # In a real system, you'd track which docs were used in responses
         top_documents = []
-        docs = db.query(Document).limit(5).all()
+        docs = db.query(Document).filter(Document.status == "ready").limit(5).all()
         for doc in docs:
             top_documents.append({
-                "name": doc.title,
+                "name": doc.name,  # Use 'name' field, not 'title'
                 "queries": 0  # Placeholder - would need proper tracking
             })
 

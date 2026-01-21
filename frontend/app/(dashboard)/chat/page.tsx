@@ -39,14 +39,40 @@ export default function ChatPage() {
   const [isChatSidebarOpen, setIsChatSidebarOpen] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const lastMessageRef = useRef<HTMLDivElement>(null);
+  const prevMessageCountRef = useRef(0);
 
+  // Scroll to the start of the last message when a new message is added
+  const scrollToLastMessage = useCallback(() => {
+    if (lastMessageRef.current) {
+      lastMessageRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  }, []);
+
+  // Scroll to bottom (for user messages)
   const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, []);
 
+  // Smart scroll - scroll to start of last assistant message, or bottom for user messages
   useEffect(() => {
-    scrollToBottom();
-  }, [messages, scrollToBottom]);
+    const currentCount = messages.length;
+    const prevCount = prevMessageCountRef.current;
+
+    if (currentCount > prevCount && currentCount > 0) {
+      const lastMessage = messages[currentCount - 1];
+
+      // For new assistant messages, scroll to start so user reads from top
+      // For user messages, scroll to bottom
+      if (lastMessage.role === "assistant" && !lastMessage.isStreaming) {
+        scrollToLastMessage();
+      } else if (lastMessage.role === "user") {
+        scrollToBottom();
+      }
+    }
+
+    prevMessageCountRef.current = currentCount;
+  }, [messages, scrollToLastMessage, scrollToBottom]);
 
   // Load chats and templates on mount
   useEffect(() => {
@@ -475,17 +501,24 @@ export default function ChatPage() {
                 </div>
               ) : (
                 <>
-                  {messages.map((message) => (
-                    <ChatMessage
-                      key={message.id}
-                      messageId={message.id.startsWith("temp-") ? undefined : message.id}
-                      role={message.role}
-                      content={message.content}
-                      sources={message.sources}
-                      isStreaming={message.isStreaming}
-                      confidence={message.confidence}
-                    />
-                  ))}
+                  {messages.map((message, index) => {
+                    const isLastAssistant = message.role === "assistant" && index === messages.length - 1;
+                    return (
+                      <div
+                        key={message.id}
+                        ref={isLastAssistant ? lastMessageRef : undefined}
+                      >
+                        <ChatMessage
+                          messageId={message.id.startsWith("temp-") ? undefined : message.id}
+                          role={message.role}
+                          content={message.content}
+                          sources={message.sources}
+                          isStreaming={message.isStreaming}
+                          confidence={message.confidence}
+                        />
+                      </div>
+                    );
+                  })}
                   {/* Smart Suggestions after last assistant message */}
                   {messages.length > 0 &&
                     messages[messages.length - 1].role === "assistant" &&
