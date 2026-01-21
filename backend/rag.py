@@ -1494,6 +1494,14 @@ async def query_with_rag(
     use_general = len(relevant_chunks) == 0
     metadata["used_general_knowledge"] = use_general
 
+    # IMPORTANT: If falling back to general knowledge, override confidence to "none"
+    # The original confidence was calculated on raw chunks before filtering
+    # If we're not using any of those chunks, confidence should reflect that
+    if use_general:
+        metadata["confidence_level"] = "none"
+        metadata["confidence_score"] = 0.0
+        logger.info("Using general knowledge - confidence overridden to 'none'")
+
     # Detect if this is a follow-up question
     followup = is_followup_query(query)
     if followup:

@@ -4,7 +4,7 @@ import React, { useState } from "react";
 import { User, Lock, LogOut, Shield, Mail, Calendar } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { api } from "@/lib/api";
-import { getInitials, formatDate } from "@/lib/utils";
+import { getInitials, formatDate, cn } from "@/lib/utils";
 
 export default function SettingsPage() {
   const { user, refreshUser, logout } = useAuth();
@@ -90,40 +90,43 @@ export default function SettingsPage() {
   };
 
   return (
-    <div className="space-y-8 max-w-3xl">
+    <div className="space-y-6 max-w-3xl">
       {/* Header */}
       <div>
-        <h1 className="text-3xl font-bold text-text-primary mb-2">Settings</h1>
-        <p className="text-text-secondary">Manage your account and preferences</p>
+        <h1 className="text-page-title text-text-primary">Settings</h1>
+        <p className="text-text-muted text-sm mt-1">Manage your account and preferences</p>
       </div>
 
       {/* Account Overview Card */}
-      <div className="glass-card rounded-2xl p-6 gradient-border">
+      <div className="glass-card p-6">
         <div className="flex items-center gap-6">
           {/* Avatar */}
-          <div className="relative">
-            <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-silver/30 to-navy/50 flex items-center justify-center border border-white/10 glow-silver">
-              <span className="text-2xl font-bold text-silver glow-text">
+          <div className="relative flex-shrink-0">
+            <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-xl bg-gradient-to-br from-accent/30 to-accent/10 flex items-center justify-center border border-accent/20">
+              <span className="text-xl sm:text-2xl font-bold text-accent">
                 {getInitials(user?.name || "U")}
               </span>
             </div>
-            <div className="absolute -bottom-1 -right-1 w-5 h-5 rounded-full bg-status-green border-2 border-black shadow-[0_0_10px_rgba(0,255,136,0.5)]" />
+            <div className="absolute -bottom-1 -right-1 w-4 h-4 rounded-full bg-status-green border-2 border-page-bg" />
           </div>
 
           {/* Info */}
-          <div className="flex-1">
-            <h2 className="text-xl font-semibold text-text-primary mb-1">{user?.name}</h2>
-            <div className="flex flex-wrap items-center gap-4 text-sm text-text-secondary">
+          <div className="flex-1 min-w-0">
+            <h2 className="text-lg sm:text-xl font-semibold text-text-primary mb-2 truncate">{user?.name}</h2>
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-text-secondary">
               <span className="flex items-center gap-1.5">
-                <Mail className="h-4 w-4 text-text-muted" />
-                {user?.email}
+                <Mail className="h-3.5 w-3.5 text-text-muted" />
+                <span className="truncate">{user?.email}</span>
               </span>
               <span className="flex items-center gap-1.5">
-                <Shield className="h-4 w-4 text-text-muted" />
-                <span className="capitalize">{user?.role}</span>
+                <Shield className="h-3.5 w-3.5 text-text-muted" />
+                <span className={cn(
+                  "capitalize px-2 py-0.5 rounded text-xs font-medium",
+                  user?.role === "admin" ? "bg-accent/10 text-accent" : "bg-card-bg text-text-secondary"
+                )}>{user?.role}</span>
               </span>
-              <span className="flex items-center gap-1.5">
-                <Calendar className="h-4 w-4 text-text-muted" />
+              <span className="flex items-center gap-1.5 text-text-muted">
+                <Calendar className="h-3.5 w-3.5" />
                 Joined {user?.created_at ? formatDate(user.created_at) : "recently"}
               </span>
             </div>
@@ -132,33 +135,34 @@ export default function SettingsPage() {
       </div>
 
       {/* Profile Section */}
-      <div className="glass-card rounded-2xl overflow-hidden">
-        <div className="flex items-center gap-4 p-5 border-b border-white/5 bg-white/[0.02]">
-          <div className="p-3 rounded-xl bg-gradient-to-br from-accent/20 to-accent/5 border border-accent/20">
-            <User className="h-5 w-5 text-accent" />
+      <div className="glass-card overflow-hidden">
+        <div className="flex items-center gap-3 p-4 border-b border-card-border bg-card-bg/50">
+          <div className="p-2 rounded-lg bg-accent/10">
+            <User className="h-4 w-4 text-accent" />
           </div>
           <div>
-            <h2 className="text-lg font-semibold text-text-primary">Profile Information</h2>
-            <p className="text-sm text-text-muted">Update your personal details</p>
+            <h2 className="font-semibold text-text-primary">Profile Information</h2>
+            <p className="text-xs text-text-muted">Update your personal details</p>
           </div>
         </div>
 
-        <div className="p-6">
+        <div className="p-4 sm:p-6">
           {profileMessage && (
             <div
-              className={`p-4 mb-6 rounded-xl border ${
+              className={cn(
+                "p-3 mb-4 rounded-lg border text-sm",
                 profileMessage.type === "success"
-                  ? "bg-status-green/10 border-status-green/30 text-status-green"
-                  : "bg-status-red/10 border-status-red/30 text-status-red"
-              }`}
+                  ? "bg-status-green/10 border-status-green/20 text-status-green"
+                  : "bg-status-red/10 border-status-red/20 text-status-red"
+              )}
             >
               {profileMessage.text}
             </div>
           )}
 
-          <form onSubmit={handleProfileSubmit} className="space-y-5">
+          <form onSubmit={handleProfileSubmit} className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-text-primary mb-2">
+              <label className="block text-sm font-medium text-text-secondary mb-1.5">
                 Full Name
               </label>
               <input
@@ -166,13 +170,13 @@ export default function SettingsPage() {
                 value={profileName}
                 onChange={(e) => setProfileName(e.target.value)}
                 required
-                className="w-full px-4 py-3 input-glass rounded-xl text-text-primary placeholder:text-text-muted focus:border-accent/50"
+                className="w-full px-3 py-2.5 bg-card-bg border border-card-border rounded-lg text-text-primary placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-accent/50 focus:border-accent/50 transition-colors"
                 placeholder="Enter your name"
               />
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-text-primary mb-2">
+              <label className="block text-sm font-medium text-text-secondary mb-1.5">
                 Email Address
               </label>
               <input
@@ -180,7 +184,7 @@ export default function SettingsPage() {
                 value={profileEmail}
                 onChange={(e) => setProfileEmail(e.target.value)}
                 required
-                className="w-full px-4 py-3 input-glass rounded-xl text-text-primary placeholder:text-text-muted focus:border-accent/50"
+                className="w-full px-3 py-2.5 bg-card-bg border border-card-border rounded-lg text-text-primary placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-accent/50 focus:border-accent/50 transition-colors"
                 placeholder="Enter your email"
               />
             </div>
@@ -188,7 +192,7 @@ export default function SettingsPage() {
             <button
               type="submit"
               disabled={profileLoading}
-              className="btn-primary px-6 py-3 rounded-xl font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
+              className="px-5 py-2.5 bg-accent text-page-bg rounded-lg font-medium hover:bg-accent-hover disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
               {profileLoading ? "Saving..." : "Save Changes"}
             </button>
@@ -197,33 +201,34 @@ export default function SettingsPage() {
       </div>
 
       {/* Security Section */}
-      <div className="glass-card rounded-2xl overflow-hidden">
-        <div className="flex items-center gap-4 p-5 border-b border-white/5 bg-white/[0.02]">
-          <div className="p-3 rounded-xl bg-gradient-to-br from-yellow-500/20 to-yellow-500/5 border border-yellow-500/20">
-            <Lock className="h-5 w-5 text-yellow-500" />
+      <div className="glass-card overflow-hidden">
+        <div className="flex items-center gap-3 p-4 border-b border-card-border bg-card-bg/50">
+          <div className="p-2 rounded-lg bg-status-yellow/10">
+            <Lock className="h-4 w-4 text-status-yellow" />
           </div>
           <div>
-            <h2 className="text-lg font-semibold text-text-primary">Security</h2>
-            <p className="text-sm text-text-muted">Change your password</p>
+            <h2 className="font-semibold text-text-primary">Security</h2>
+            <p className="text-xs text-text-muted">Change your password</p>
           </div>
         </div>
 
-        <div className="p-6">
+        <div className="p-4 sm:p-6">
           {passwordMessage && (
             <div
-              className={`p-4 mb-6 rounded-xl border ${
+              className={cn(
+                "p-3 mb-4 rounded-lg border text-sm",
                 passwordMessage.type === "success"
-                  ? "bg-status-green/10 border-status-green/30 text-status-green"
-                  : "bg-status-red/10 border-status-red/30 text-status-red"
-              }`}
+                  ? "bg-status-green/10 border-status-green/20 text-status-green"
+                  : "bg-status-red/10 border-status-red/20 text-status-red"
+              )}
             >
               {passwordMessage.text}
             </div>
           )}
 
-          <form onSubmit={handlePasswordSubmit} className="space-y-5">
+          <form onSubmit={handlePasswordSubmit} className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-text-primary mb-2">
+              <label className="block text-sm font-medium text-text-secondary mb-1.5">
                 Current Password
               </label>
               <input
@@ -231,14 +236,14 @@ export default function SettingsPage() {
                 value={currentPassword}
                 onChange={(e) => setCurrentPassword(e.target.value)}
                 required
-                className="w-full px-4 py-3 input-glass rounded-xl text-text-primary placeholder:text-text-muted focus:border-accent/50"
+                className="w-full px-3 py-2.5 bg-card-bg border border-card-border rounded-lg text-text-primary placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-accent/50 focus:border-accent/50 transition-colors"
                 placeholder="Enter current password"
               />
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium text-text-primary mb-2">
+                <label className="block text-sm font-medium text-text-secondary mb-1.5">
                   New Password
                 </label>
                 <input
@@ -246,13 +251,13 @@ export default function SettingsPage() {
                   value={newPassword}
                   onChange={(e) => setNewPassword(e.target.value)}
                   required
-                  className="w-full px-4 py-3 input-glass rounded-xl text-text-primary placeholder:text-text-muted focus:border-accent/50"
+                  className="w-full px-3 py-2.5 bg-card-bg border border-card-border rounded-lg text-text-primary placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-accent/50 focus:border-accent/50 transition-colors"
                   placeholder="Enter new password"
                 />
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-text-primary mb-2">
+                <label className="block text-sm font-medium text-text-secondary mb-1.5">
                   Confirm Password
                 </label>
                 <input
@@ -260,7 +265,7 @@ export default function SettingsPage() {
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
                   required
-                  className="w-full px-4 py-3 input-glass rounded-xl text-text-primary placeholder:text-text-muted focus:border-accent/50"
+                  className="w-full px-3 py-2.5 bg-card-bg border border-card-border rounded-lg text-text-primary placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-accent/50 focus:border-accent/50 transition-colors"
                   placeholder="Confirm new password"
                 />
               </div>
@@ -269,7 +274,7 @@ export default function SettingsPage() {
             <button
               type="submit"
               disabled={passwordLoading}
-              className="btn-primary px-6 py-3 rounded-xl font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
+              className="px-5 py-2.5 bg-accent text-page-bg rounded-lg font-medium hover:bg-accent-hover disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
               {passwordLoading ? "Updating..." : "Update Password"}
             </button>
@@ -278,20 +283,20 @@ export default function SettingsPage() {
       </div>
 
       {/* Logout Section */}
-      <div className="glass-card rounded-2xl overflow-hidden">
-        <div className="flex items-center justify-between p-6">
-          <div className="flex items-center gap-4">
-            <div className="p-3 rounded-xl bg-gradient-to-br from-status-red/20 to-status-red/5 border border-status-red/20">
-              <LogOut className="h-5 w-5 text-status-red" />
+      <div className="glass-card overflow-hidden">
+        <div className="flex items-center justify-between p-4 sm:p-5">
+          <div className="flex items-center gap-3">
+            <div className="p-2 rounded-lg bg-status-red/10">
+              <LogOut className="h-4 w-4 text-status-red" />
             </div>
             <div>
-              <h2 className="text-lg font-semibold text-text-primary">Sign Out</h2>
-              <p className="text-sm text-text-muted">Log out of your Klyra account</p>
+              <h2 className="font-semibold text-text-primary">Sign Out</h2>
+              <p className="text-xs text-text-muted">Log out of your account</p>
             </div>
           </div>
           <button
             onClick={handleLogout}
-            className="px-6 py-3 rounded-xl font-semibold border-2 border-status-red/50 text-status-red hover:bg-status-red/10 hover:border-status-red transition-all duration-300"
+            className="px-4 py-2 rounded-lg font-medium border border-status-red/30 text-status-red hover:bg-status-red/10 hover:border-status-red/50 transition-colors"
           >
             Sign Out
           </button>
