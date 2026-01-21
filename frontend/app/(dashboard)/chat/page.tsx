@@ -54,20 +54,30 @@ export default function ChatPage() {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, []);
 
-  // Smart scroll - scroll to start of last assistant message, or bottom for user messages
+  // Track if we've scrolled to the current assistant message
+  const hasScrolledToAssistantRef = useRef(false);
+
+  // Smart scroll - scroll to start of last assistant message when it STARTS streaming
   useEffect(() => {
     const currentCount = messages.length;
     const prevCount = prevMessageCountRef.current;
 
-    if (currentCount > prevCount && currentCount > 0) {
+    if (currentCount > 0) {
       const lastMessage = messages[currentCount - 1];
 
-      // For new assistant messages, scroll to start so user reads from top
-      // For user messages, scroll to bottom
-      if (lastMessage.role === "assistant" && !lastMessage.isStreaming) {
-        scrollToLastMessage();
-      } else if (lastMessage.role === "user") {
+      // For new user messages, scroll to bottom
+      if (currentCount > prevCount && lastMessage.role === "user") {
         scrollToBottom();
+        hasScrolledToAssistantRef.current = false; // Reset for next assistant message
+      }
+      // For new assistant messages, scroll to start IMMEDIATELY when streaming begins
+      else if (
+        lastMessage.role === "assistant" &&
+        lastMessage.isStreaming &&
+        !hasScrolledToAssistantRef.current
+      ) {
+        scrollToLastMessage();
+        hasScrolledToAssistantRef.current = true; // Only scroll once at the start
       }
     }
 
